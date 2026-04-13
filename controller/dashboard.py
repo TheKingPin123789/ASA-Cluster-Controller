@@ -708,7 +708,7 @@ def get_defaults():
             "cluster_shutdown_minutes": "30",
             "server_start_timeout_seconds": "300",
             "save_before_exit_seconds": "10",
-            "post_shutdown_wait_seconds": "30",
+            "post_shutdown_wait_seconds": "60",
             "crash_detection_threshold": "5",
         },
         "backup": {

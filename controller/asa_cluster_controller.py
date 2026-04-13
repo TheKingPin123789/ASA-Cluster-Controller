@@ -54,7 +54,7 @@ CLUSTER_SHUTDOWN_DELAY_SECONDS = int(_ci("timers", "cluster_shutdown_minutes","3
 
 SAVE_BEFORE_EXIT_WAIT_SECONDS  = int(_ci("timers",  "save_before_exit_seconds",       "10"))
 SERVER_START_TIMEOUT_SECONDS   = int(_ci("timers",  "server_start_timeout_seconds",   "300"))
-POST_SHUTDOWN_WAIT_SECONDS     = int(_ci("timers",  "post_shutdown_wait_seconds",      "30"))
+POST_SHUTDOWN_WAIT_SECONDS     = int(_ci("timers",  "post_shutdown_wait_seconds",      "60"))
 CRASH_DETECTION_THRESHOLD      = int(_ci("timers",  "crash_detection_threshold",       "5"))
 DEFAULT_SERVER_KEY            = _ci("cluster",      "default_map",                   "ragnarok")
 HOST                          = _ci("network",      "rcon_host",                     "127.0.0.1")
