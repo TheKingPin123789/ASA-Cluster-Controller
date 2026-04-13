@@ -60,7 +60,7 @@ DEFAULT_SERVER_KEY            = _ci("cluster",      "default_map",              
 HOST                          = _ci("network",      "rcon_host",                     "127.0.0.1")
 SHUTDOWN_WARNING_MINUTES      = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 
-RESTART_TIME              = _ci("schedule", "restart_time",             "")      # HH:MM or empty
+RESTART_TIME              = _ci("schedule", "restart_time",             "06:00") # HH:MM or empty
 CHECK_UPDATES_ON_STARTUP  = _ci("schedule", "check_updates_on_startup", "true").lower() == "true"
 
 BACKUP_DIR   = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
@@ -172,6 +172,7 @@ class ServerState:
     pending_online_announcement: bool = False
     rcon_fail_count: int = 0
     pending_restart: bool = False
+    player_list: List[Dict] = field(default_factory=list)
 
 
 @dataclass
@@ -400,6 +401,7 @@ def stop_server_safe(state: ServerState, reason: str) -> None:
     state.last_seen_online_at = None
     state.empty_since = None
     state.players.clear()
+    state.player_list = []
     state.player_count = 0
     state.last_player_seen_at = None
     state.online_since = None
@@ -884,6 +886,18 @@ def parse_list_players(raw: str) -> int:
     return sum(1 for line in raw.splitlines() if re.match(r"\s*\d+\.\s+\S", line))
 
 
+def parse_list_players_detailed(raw: str) -> List[Dict]:
+    """Parse ListPlayers RCON output into [{name, id}] dicts."""
+    if not raw or "no players" in raw.lower():
+        return []
+    players = []
+    for line in raw.splitlines():
+        m = re.match(r"\s*\d+\.\s+(.+),\s*(\S+)\s*$", line.strip())
+        if m:
+            players.append({"name": m.group(1).strip(), "id": m.group(2).strip()})
+    return players
+
+
 def get_pid_on_port(port: int) -> Optional[int]:
     try:
         result = subprocess.run(
@@ -1005,6 +1019,8 @@ def update_running_status(state: ServerState) -> None:
         state.is_running = True
         state.is_starting = False
         state.last_seen_online_at = now
+        state.player_list = parse_list_players_detailed(raw_players or "")
+        state.player_count = len(state.player_list)
 
         # On first contact only: replay the game log to recover who is
         # currently online. This handles controller restarts while players
@@ -1265,6 +1281,7 @@ def write_cluster_status() -> None:
             "rcon_port": state.cfg.rcon_port,
             "manual_stop_in": shutdown_in,
             "pending_restart": state.pending_restart,
+            "player_list": state.player_list,
         }
 
     cluster_shutdown_in = None
@@ -1450,12 +1467,29 @@ def _run_steamcmd_app_update() -> None:
 
 
 def check_and_update_on_startup() -> None:
-    """Ensure SteamCMD is present, then install/update the server."""
+    """Ensure SteamCMD and the server are present, then check for updates.
+
+    The server is always installed/downloaded if the exe is missing —
+    regardless of the check_updates_on_startup setting.  That flag only
+    controls whether an already-installed server is updated on each start.
+    """
+    exe = os.path.join(SERVER_ROOT, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
+    server_installed = os.path.exists(exe)
+
+    if not server_installed:
+        # Fresh install — must download regardless of update setting
+        if not _ensure_steamcmd():
+            return
+        log("Server not installed — downloading now...")
+        _run_steamcmd_app_update()
+        return
+
+    # Server is already installed — only update if configured to do so
     if not CHECK_UPDATES_ON_STARTUP:
         return
 
     if not _ensure_steamcmd():
-        return  # download failed — nothing more to do
+        return
 
     log("Checking for server updates...")
     _run_steamcmd_app_update()
@@ -1590,6 +1624,7 @@ def main() -> int:
 
             ensure_default_server()
             write_cluster_status()
+            _save_running_maps()
             print_summary()
 
             time.sleep(POLL_SECONDS)

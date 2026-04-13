@@ -313,7 +313,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     )
     restart_time = _ask_time_optional(
         "Daily restart time (leave blank to disable)",
-        prev_get("schedule", "restart_time", ""),
+        prev_get("schedule", "restart_time", "06:00"),
     )
     if restart_time:
         print(f"  → Cluster will restart and update daily at {restart_time}.")

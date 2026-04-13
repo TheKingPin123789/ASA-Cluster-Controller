@@ -89,11 +89,12 @@ input[type=text], select, textarea {
 select { cursor: pointer; }
 label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 
-/* Whitelist list */
-#wl-list { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 160px; overflow-y: auto; }
-.wl-entry { display: flex; align-items: center; justify-content: space-between; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 6px; }
-.wl-id { font-family: Consolas, monospace; font-size: 11px; color: #a3e635; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.wl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
+/* Player list */
+#player-list { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
+.pl-entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 5px; }
+.pl-name { font-size: 12px; color: #dde1e7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-map  { font-size: 10px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
+.pl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
 
 /* Right panel: console + log stacked */
 #console-wrap { flex-shrink: 0; display: flex; flex-direction: column; }
@@ -160,17 +161,14 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
       </div>
 
       <div class="sec">
-        <div class="sec-title">Whitelist</div>
-        <div class="row" style="margin-bottom:6px;">
-          <span style="font-size:12px; flex:1;">!start command whitelist:</span>
-          <button id="btn-wl" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <div class="sec-title" style="margin-bottom:0;">Online Players</div>
+          <div style="display:flex; align-items:center; gap:5px;">
+            <span style="font-size:10px; color:#4b5563;">!start whitelist:</span>
+            <button id="btn-wl" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
+          </div>
         </div>
-        <label>Add player</label>
-        <div class="row">
-          <input type="text" id="wl-add" placeholder="Steam hex ID">
-          <button class="btn btn-green btn-sm" style="white-space:nowrap;" onclick="wlAdd()">Add</button>
-        </div>
-        <div id="wl-list"><span class="wl-empty">Loading...</span></div>
+        <div id="player-list"><span class="pl-empty">No players online</span></div>
       </div>
 
     </div>
@@ -290,42 +288,28 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Whitelist ────────────────────────────────────────────────────────────────
+// ── Whitelist toggle ──────────────────────────────────────────────────────────
 function toggleWhitelist() { cmd(whitelistActive ? 'whitelist off' : 'whitelist on'); }
 
-function wlAdd() {
-  const inp = document.getElementById('wl-add');
-  const v = inp.value.trim();
-  if (!v) return;
-  cmd('whitelist add ' + v);
-  inp.value = '';
-  setTimeout(pollWhitelist, 600);
-}
-
-function wlRemove(id) {
-  cmd('whitelist remove ' + id);
-  setTimeout(pollWhitelist, 600);
-}
-
-async function pollWhitelist() {
-  try {
-    const r = await fetch('/api/whitelist');
-    if (!r.ok) return;
-    const data = await r.json();
-    renderWhitelist(data.entries || []);
-  } catch(e) {}
-}
-
-function renderWhitelist(entries) {
-  const el = document.getElementById('wl-list');
-  if (!entries.length) {
-    el.innerHTML = '<span class="wl-empty">No entries — whitelist is empty (everyone allowed)</span>';
+// ── Player list ───────────────────────────────────────────────────────────────
+function renderPlayerList(data) {
+  const el = document.getElementById('player-list');
+  const players = [];
+  for (const [key, s] of Object.entries(data.servers || {})) {
+    for (const p of (s.player_list || [])) {
+      players.push({ name: p.name, id: p.id, map: MAP_DISPLAY[key] || key });
+    }
+  }
+  if (!players.length) {
+    el.innerHTML = '<span class="pl-empty">No players online</span>';
     return;
   }
-  el.innerHTML = entries.map(id =>
-    `<div class="wl-entry">
-       <span class="wl-id" title="${escHtml(id)}">${escHtml(id)}</span>
-       <button class="btn btn-red btn-sm" onclick="wlRemove('${escHtml(id)}')">Remove</button>
+  el.innerHTML = players.map(p =>
+    `<div class="pl-entry">
+       <span class="pl-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span>
+       <span class="pl-map">${escHtml(p.map)}</span>
+       <button class="btn btn-green btn-sm" title="Add to whitelist"  onclick="cmd('whitelist add ${escHtml(p.id)}')">+WL</button>
+       <button class="btn btn-red   btn-sm" title="Remove from whitelist" onclick="cmd('whitelist remove ${escHtml(p.id)}')">-WL</button>
      </div>`
   ).join('');
 }
@@ -431,6 +415,7 @@ async function pollStatus() {
     const data = await r.json();
     if (data.error) return;
     renderCards(data);
+    renderPlayerList(data);
     setTimerFromStatus(data);
   } catch(e) {}
 }
@@ -567,11 +552,9 @@ async function saveSettings() {
 pollStatus();
 pollLogs();
 pollAdminLogs();
-pollWhitelist();
 setInterval(pollStatus,    3000);
 setInterval(pollLogs,      2000);
 setInterval(pollAdminLogs, 1500);
-setInterval(pollWhitelist, 5000);
 </script>
 </body>
 </html>"""
@@ -717,7 +700,7 @@ def get_defaults():
         },
         "schedule": {
             "check_updates_on_startup": "true",
-            "restart_time": "",
+            "restart_time": "06:00",
         },
         "rates": {
             "xp_multiplier": "1.0",
