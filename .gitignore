@@ -1,0 +1,14 @@
+config.ini
+whitelist.txt
+whitelist_disabled.flag
+cluster_status.txt
+cluster_status.json
+cluster_status.json.tmp
+controller.log
+admin_log.txt
+admin_commands.txt
+restart_maps.txt
+controller.stop
+__pycache__/
+*.pyc
+.claude/
