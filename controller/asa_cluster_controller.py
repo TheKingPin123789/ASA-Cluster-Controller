@@ -1386,6 +1386,69 @@ def _ensure_steamcmd() -> bool:
         return False
 
 
+def _run_steamcmd_app_update() -> None:
+    """Run SteamCMD +app_update 2430930. Retries once if Steam reports
+    'Missing configuration' — a known first-run quirk where the app
+    manifest hasn't been cached locally yet."""
+    cmd = [
+        STEAMCMD_EXE,
+        "+@sSteamCmdForcePlatformType", "windows",
+        "+force_install_dir", SERVER_ROOT,
+        "+login", "anonymous",
+        "+app_update", "2430930",
+        "+quit",
+    ]
+    os.makedirs(SERVER_ROOT, exist_ok=True)
+
+    for attempt in range(1, 3):  # up to 2 attempts
+        if attempt > 1:
+            log("Retrying server install (attempt 2/2)...")
+
+        output_lines: List[str] = []
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    print(line, flush=True)
+                    output_lines.append(line.lower())
+            proc.wait(timeout=1800)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            log("SteamCMD timed out after 30 minutes.")
+            return
+        except Exception as exc:
+            log(f"SteamCMD error: {exc}")
+            return
+
+        combined = " ".join(output_lines)
+
+        if "already up to date" in combined:
+            log("Server is already up to date.")
+            return
+        if "fully installed" in combined or "success" in combined:
+            log("Server installed/updated successfully.")
+            return
+        if "missing configuration" in combined and attempt == 1:
+            # Steam hasn't cached the app manifest yet — retry immediately
+            log("SteamCMD: app manifest not cached, retrying...")
+            continue
+
+        # If the exe is on disk, treat it as success regardless of output text
+        exe = os.path.join(SERVER_ROOT, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
+        if os.path.exists(exe):
+            log("Server installed/updated successfully.")
+            return
+
+        log("SteamCMD finished (status unknown).")
+        return
+
+
 def check_and_update_on_startup() -> None:
     """Ensure SteamCMD is present, then install/update the server."""
     if not CHECK_UPDATES_ON_STARTUP:
@@ -1395,40 +1458,7 @@ def check_and_update_on_startup() -> None:
         return  # download failed — nothing more to do
 
     log("Checking for server updates...")
-    output_lines: List[str] = []
-    try:
-        os.makedirs(SERVER_ROOT, exist_ok=True)
-        proc = subprocess.Popen(
-            [STEAMCMD_EXE,
-             "+@sSteamCmdForcePlatformType", "windows",
-             "+force_install_dir", SERVER_ROOT,
-             "+login", "anonymous",
-             "+app_update", "2430930",
-             "+quit"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line:
-                print(line, flush=True)
-                output_lines.append(line.lower())
-        proc.wait(timeout=1800)
-
-        combined = " ".join(output_lines)
-        if "already up to date" in combined:
-            log("Server is already up to date.")
-        elif "fully installed" in combined or "success" in combined:
-            log("Server installed/updated successfully.")
-        else:
-            log("SteamCMD finished (status unknown).")
-
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        log("SteamCMD timed out after 30 minutes.")
-    except Exception as exc:
-        log(f"Update check failed: {exc}")
+    _run_steamcmd_app_update()
 
 
 def handle_scheduled_restart() -> None:
