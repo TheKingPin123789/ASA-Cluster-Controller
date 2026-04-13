@@ -260,7 +260,11 @@ def servers_to_probe() -> List[ServerState]:
     result = [s for s in SERVER_STATES.values() if s.is_running or s.is_starting]
     default_state = SERVER_STATES[DEFAULT_SERVER_KEY]
     if default_state not in result:
-        result.append(default_state)
+        # Only probe the default server if the exe exists — avoids RCON
+        # failure spam while the server is still being downloaded/installed.
+        exe = os.path.join(SERVER_ROOT, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
+        if os.path.exists(exe):
+            result.append(default_state)
     return result
 
 
@@ -1342,7 +1346,8 @@ def print_summary() -> None:
 
 
 def _ensure_steamcmd() -> bool:
-    """Download SteamCMD if it is not already present. Returns True if available."""
+    """Download SteamCMD if not present, then let it self-update before use.
+    Returns True if SteamCMD is ready to install/update apps."""
     if os.path.exists(STEAMCMD_EXE):
         return True
 
@@ -1355,10 +1360,29 @@ def _ensure_steamcmd() -> bool:
             data = resp.read()
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             z.extractall(steamcmd_dir)
-        log("SteamCMD downloaded successfully.")
-        return True
     except Exception as exc:
         log(f"SteamCMD download failed: {exc}")
+        return False
+
+    # SteamCMD always self-updates on first launch — run +quit now so it
+    # finishes updating before we ask it to install the game server.
+    log("SteamCMD downloaded — running initial self-update (this takes a moment)...")
+    try:
+        proc = subprocess.Popen(
+            [STEAMCMD_EXE, "+quit"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                print(line, flush=True)
+        proc.wait(timeout=180)
+        log("SteamCMD ready.")
+        return True
+    except Exception as exc:
+        log(f"SteamCMD self-update failed: {exc}")
         return False
 
 
