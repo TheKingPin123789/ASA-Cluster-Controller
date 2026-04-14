@@ -79,7 +79,23 @@ TAMING_SPEED_MULTIPLIER   = _ci("rates", "taming_speed_multiplier",    "1.0")
 HARVEST_AMOUNT_MULTIPLIER = _ci("rates", "harvest_amount_multiplier",  "1.0")
 DIFFICULTY_OFFSET         = _ci("rates", "difficulty_offset",          "1.0")
 MATING_INTERVAL_MULT      = _ci("rates", "mating_interval_multiplier", "1.0")
-EGG_HATCH_SPEED_MULT      = _ci("rates", "egg_hatch_speed_multiplier", "1.0")
+EGG_HATCH_SPEED_MULT      = _ci("rates", "egg_hatch_speed_multiplier",                    "1.0")
+GLOBAL_SPOILING_TIME_MULT = _ci("rates", "global_spoiling_time_multiplier",               "1.0")
+GLOBAL_ITEM_DECOMP_MULT   = _ci("rates", "global_item_decomposition_time_multiplier",     "1.0")
+GLOBAL_CORPSE_DECOMP_MULT = _ci("rates", "global_corpse_decomposition_time_multiplier",   "1.0")
+CROP_GROWTH_SPEED_MULT    = _ci("rates", "crop_growth_speed_multiplier",                  "1.0")
+MATING_SPEED_MULT         = _ci("rates", "mating_speed_multiplier",                       "1.0")
+FUEL_CONSUMPTION_MULT     = _ci("rates", "fuel_consumption_interval_multiplier",          "1.0")
+
+FLAG_THIRD_PERSON           = _ci("flags", "allow_third_person",              "false").lower() == "true"
+FLAG_SHOW_MAP_LOC           = _ci("flags", "show_map_player_location",        "true").lower()  == "true"
+FLAG_STRUCTURE_PICKUP       = _ci("flags", "always_allow_structure_pickup",   "true").lower()  == "true"
+FLAG_DISABLE_STRUCT_DECAY   = _ci("flags", "disable_structure_decay_pve",     "false").lower() == "true"
+FLAG_CAVE_BUILDING          = _ci("flags", "allow_cave_building_pve",         "false").lower() == "true"
+FLAG_ANYONE_IMPRINT         = _ci("flags", "allow_anyone_baby_imprint_cuddle","false").lower() == "true"
+FLAG_FLYER_CARRY            = _ci("flags", "allow_flyer_carry_pve",           "true").lower()  == "true"
+FLAG_NO_DL_SURVIVORS        = _ci("flags", "prevent_download_survivors",      "false").lower() == "true"
+FLAG_NO_DL_ITEMS            = _ci("flags", "prevent_download_items",          "false").lower() == "true"
 
 SHOULD_EXIT    = False
 LAST_SUMMARY_LINE = None
@@ -301,9 +317,20 @@ def _patch_game_user_settings() -> None:
         "TamingSpeedMultiplier":         TAMING_SPEED_MULTIPLIER,
         "HarvestAmountMultiplier":       HARVEST_AMOUNT_MULTIPLIER,
         "DifficultyOffset":              DIFFICULTY_OFFSET,
-        "MatingIntervalMultiplier":      MATING_INTERVAL_MULT,
-        "EggHatchSpeedMultiplier":       EGG_HATCH_SPEED_MULT,
-        "BabyMatureSpeedMultiplier":     BABY_MATURE_SPEED_MULT,
+        "MatingIntervalMultiplier":              MATING_INTERVAL_MULT,
+        "EggHatchSpeedMultiplier":               EGG_HATCH_SPEED_MULT,
+        "GlobalSpoilingTimeMultiplier":          GLOBAL_SPOILING_TIME_MULT,
+        "GlobalItemDecompositionTimeMultiplier": GLOBAL_ITEM_DECOMP_MULT,
+        "GlobalCorpseDecompositionTimeMultiplier": GLOBAL_CORPSE_DECOMP_MULT,
+        "CropGrowthSpeedMultiplier":             CROP_GROWTH_SPEED_MULT,
+        "MatingSpeedMultiplier":                 MATING_SPEED_MULT,
+        "FuelConsumptionIntervalMultiplier":     FUEL_CONSUMPTION_MULT,
+        "AlwaysAllowStructurePickup":            "True" if FLAG_STRUCTURE_PICKUP     else "False",
+        "DisableStructureDecayPvE":              "True" if FLAG_DISABLE_STRUCT_DECAY else "False",
+        "AllowCaveBuildingPvE":                  "True" if FLAG_CAVE_BUILDING        else "False",
+        "AllowAnyoneBabyImprintCuddle":          "True" if FLAG_ANYONE_IMPRINT       else "False",
+        "AllowFlyerCarryPvE":                    "True" if FLAG_FLYER_CARRY          else "False",
+        "BabyMatureSpeedMultiplier":             BABY_MATURE_SPEED_MULT,
         "BabyCuddleIntervalMultiplier":  BABY_CUDDLE_INTERVAL_MULT,
         "BabyCuddleGracePeriodMultiplier": BABY_CUDDLE_GRACE_PERIOD_MULT,
         "BabyImprintAmountMultiplier":   BABY_IMPRINT_AMOUNT_MULT,
@@ -351,6 +378,14 @@ def start_server(key: str) -> bool:
         f"-ClusterDirOverride={CLUSTER_DIR}",
         f"-ClusterId={CLUSTER_ID}",
     ]
+    if FLAG_THIRD_PERSON:
+        flags.append("-AllowThirdPersonPlayer")
+    if FLAG_SHOW_MAP_LOC:
+        flags.append("-ShowMapPlayerLocation")
+    if FLAG_NO_DL_SURVIVORS:
+        flags.append("-PreventDownloadSurvivors")
+    if FLAG_NO_DL_ITEMS:
+        flags.append("-PreventDownloadItems")
 
     log(f"Starting {key}")
     subprocess.Popen(
@@ -1405,6 +1440,7 @@ def write_cluster_status() -> None:
 
     payload = {
         "cluster_name": CLUSTER_NAME,
+        "max_players": MAX_PLAYERS,
         "servers": servers_data,
         "total_players": total_players,
         "cluster_shutdown_scheduled": CLUSTER.shutdown_scheduled,

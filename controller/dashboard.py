@@ -49,7 +49,7 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .badge.starting { background: #78350f; color: #fbbf24; }
 .badge.offline  { background: #1f2937; color: #6b7280; }
 .card-players { font-size: 13px; color: #6b7280; margin-bottom: 6px; min-height: 14px; }
-.card-btns { display: flex; gap: 4px; }
+.card-btns { display: flex; gap: 4px; flex-wrap: wrap; }
 
 /* Main layout */
 #main { display: flex; flex: 1; overflow: hidden; gap: 8px; padding: 8px 12px; }
@@ -759,7 +759,7 @@ function renderCards(data) {
   for (const [key, s] of Object.entries(data.servers)) {
     const cls   = s.is_running ? 'online' : (s.is_starting ? 'starting' : 'offline');
     const label = s.is_running ? 'Online' : (s.is_starting ? 'Starting' : 'Offline');
-    const players = s.is_running ? s.player_count + ' player(s)' : '';
+    const players = s.is_running ? s.player_count + ' / ' + (data.max_players || 70) + ' player(s)' : '';
 
     if (cardEls[key]) {
       const c = cardEls[key];
@@ -1156,12 +1156,29 @@ def get_defaults():
             "difficulty_offset": "1.0",
             "mating_interval_multiplier": "1.0",
             "egg_hatch_speed_multiplier": "1.0",
+            "global_spoiling_time_multiplier": "1.0",
+            "global_item_decomposition_time_multiplier": "1.0",
+            "global_corpse_decomposition_time_multiplier": "1.0",
+            "crop_growth_speed_multiplier": "1.0",
+            "mating_speed_multiplier": "1.0",
+            "fuel_consumption_interval_multiplier": "1.0",
         },
         "breeding": {
             "baby_mature_speed_multiplier": "1.0",
             "baby_cuddle_interval_multiplier": "1.8",
             "baby_cuddle_grace_period_multiplier": "1.0",
             "baby_imprint_amount_multiplier": "20.0",
+        },
+        "flags": {
+            "allow_third_person": "false",
+            "show_map_player_location": "true",
+            "always_allow_structure_pickup": "true",
+            "disable_structure_decay_pve": "false",
+            "allow_cave_building_pve": "false",
+            "allow_anyone_baby_imprint_cuddle": "false",
+            "allow_flyer_carry_pve": "true",
+            "prevent_download_survivors": "false",
+            "prevent_download_items": "false",
         },
     })
 
@@ -1186,8 +1203,11 @@ h1 { font-size:18px; font-weight:700; color:#93c5fd; margin-bottom:0; }
 .tab-content { flex:1; background:#222840; border:1px solid #3b4a7a; border-radius:0 4px 4px 4px; padding:14px 16px; overflow-y:auto; }
 .group  { display:none; }
 .group.active { display:block; }
+.page-wrap { max-width:960px; width:100%; margin:0 auto; display:flex; flex-direction:column; flex:1; }
 .grid2  { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-@media (max-width:600px) { .grid2 { grid-template-columns:1fr; } }
+.grid3  { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+@media (max-width:800px) { .grid3 { grid-template-columns:1fr 1fr; } }
+@media (max-width:600px) { .grid2, .grid3 { grid-template-columns:1fr; } }
 .field  { margin-bottom:8px; }
 .field.wide { grid-column:1 / -1; }
 label   { font-size:13px; color:#6b7280; display:block; margin-bottom:4px; }
@@ -1202,6 +1222,7 @@ input:focus { outline:none; border-color:#3b4a7a; }
 </style>
 </head>
 <body>
+<div class="page-wrap">
 <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
   <a href="/" style="color:#4b5563; font-size:22px; text-decoration:none; line-height:1;"
      onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#4b5563'">←</a>
@@ -1214,6 +1235,7 @@ input:focus { outline:none; border-color:#3b4a7a; }
   <div id="form"></div>
 </div>
 <div class="footer"><button class="btn" id="save-btn" onclick="save()">Save Settings</button></div>
+</div>
 <script>
 const SCHEMA = [
   { group:'Cluster', fields:[
@@ -1262,6 +1284,25 @@ const SCHEMA = [
     {s:'breeding',k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period'},
     {s:'breeding',k:'baby_imprint_amount_multiplier',      label:'Imprint Amount'},
   ]},
+  { group:'More Rates', grid3:true, fields:[
+    {s:'rates',k:'global_spoiling_time_multiplier',              label:'Spoiling Time'},
+    {s:'rates',k:'global_item_decomposition_time_multiplier',    label:'Item Decomp'},
+    {s:'rates',k:'global_corpse_decomposition_time_multiplier',  label:'Corpse Decomp'},
+    {s:'rates',k:'crop_growth_speed_multiplier',                 label:'Crop Growth'},
+    {s:'rates',k:'mating_speed_multiplier',                      label:'Mating Speed'},
+    {s:'rates',k:'fuel_consumption_interval_multiplier',         label:'Fuel Consumption'},
+  ]},
+  { group:'Flags', grid:true, fields:[
+    {s:'flags',k:'allow_third_person',              label:'Allow Third Person (true/false)'},
+    {s:'flags',k:'show_map_player_location',        label:'Show Map Player Location (true/false)'},
+    {s:'flags',k:'always_allow_structure_pickup',   label:'Always Allow Structure Pickup (true/false)'},
+    {s:'flags',k:'disable_structure_decay_pve',     label:'Disable Structure Decay PvE (true/false)'},
+    {s:'flags',k:'allow_cave_building_pve',         label:'Allow Cave Building PvE (true/false)'},
+    {s:'flags',k:'allow_anyone_baby_imprint_cuddle',label:'Anyone Can Imprint Cuddle (true/false)'},
+    {s:'flags',k:'allow_flyer_carry_pve',           label:'Allow Flyer Carry PvE (true/false)'},
+    {s:'flags',k:'prevent_download_survivors',      label:'Prevent Download Survivors (true/false)'},
+    {s:'flags',k:'prevent_download_items',          label:'Prevent Download Items (true/false)'},
+  ]},
 ];
 
 let activeTab = 0;
@@ -1287,7 +1328,8 @@ function render(data) {
     const sec = document.createElement('div');
     sec.className = 'group' + (i === activeTab ? ' active' : '');
     const wrap = document.createElement('div');
-    if (g.grid) wrap.className = 'grid2';
+    if (g.grid3) wrap.className = 'grid3';
+    else if (g.grid) wrap.className = 'grid2';
     for (const f of g.fields) {
       const val = esc((data[f.s] || {})[f.k] || '');
       const d = document.createElement('div');
