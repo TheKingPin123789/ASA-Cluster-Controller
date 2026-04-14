@@ -166,6 +166,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
           <div style="display:flex; align-items:center; gap:5px;">
             <span style="font-size:10px; color:#4b5563;">!start whitelist:</span>
             <button id="btn-wl" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
+            <a href="/whitelist" target="_blank" class="btn btn-blue btn-sm" style="text-decoration:none;">Manage</a>
           </div>
         </div>
         <div id="player-list"><span class="pl-empty">No players online</span></div>
@@ -717,6 +718,162 @@ def get_defaults():
             "baby_imprint_amount_multiplier": "20.0",
         },
     })
+
+
+WHITELIST_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Whitelist — ASA Cluster</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
+#header { background: #1a1f36; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #2a3050; }
+#header a { color: #93c5fd; font-size: 12px; text-decoration: none; }
+#header a:hover { text-decoration: underline; }
+#header .title { font-weight: 700; font-size: 16px; color: #93c5fd; flex: 1; }
+#wrap { max-width: 560px; margin: 24px auto; padding: 0 16px; }
+.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.card-title { font-size: 12px; color: #4b5563; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
+.btn { padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity .15s; }
+.btn:hover { opacity: .85; }
+.btn-green  { background: #16a34a; color: #fff; }
+.btn-red    { background: #dc2626; color: #fff; }
+.btn-gray   { background: #374151; color: #9ca3af; }
+.btn-sm { padding: 3px 8px; font-size: 11px; }
+.row { display: flex; gap: 6px; align-items: center; }
+input[type=text] { background: #131825; border: 1px solid #2a3050; color: #dde1e7; padding: 6px 9px; border-radius: 4px; font-size: 13px; flex: 1; font-family: inherit; }
+#wl-status { font-size: 12px; margin-bottom: 10px; padding: 6px 9px; border-radius: 4px; }
+.status-on  { background: #14532d; color: #4ade80; }
+.status-off { background: #1f2937; color: #6b7280; }
+#entries { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 4px; padding: 6px 10px; gap: 8px; }
+.entry-id { font-family: Consolas, monospace; font-size: 12px; color: #a3e635; flex: 1; word-break: break-all; }
+.empty { font-size: 12px; color: #4b5563; font-style: italic; padding: 6px 2px; }
+#msg { font-size: 12px; color: #4ade80; margin-top: 6px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div id="header">
+  <span class="title">Whitelist Management</span>
+  <a href="/">← Back to Dashboard</a>
+</div>
+<div id="wrap">
+
+  <div class="card">
+    <div class="card-title">Status</div>
+    <div id="wl-status" class="status-off">Loading...</div>
+    <button id="btn-toggle" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Add Entry</div>
+    <div class="row">
+      <input type="text" id="new-id" placeholder="Player ID (from +WL button or game logs)">
+      <button class="btn btn-green" onclick="addEntry()">Add</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Whitelisted Players <span id="count" style="color:#6b7280;font-weight:400;"></span></div>
+    <div id="entries"><span class="empty">Loading...</span></div>
+  </div>
+
+</div>
+<script>
+function cmd(command) {
+  return fetch('/api/command', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({command})
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let wlActive = false;
+
+function toggleWhitelist() {
+  cmd(wlActive ? 'whitelist off' : 'whitelist on').then(() => setTimeout(refresh, 600));
+}
+
+function addEntry() {
+  const inp = document.getElementById('new-id');
+  const v = inp.value.trim();
+  if (!v) return;
+  cmd('whitelist add ' + v).then(() => {
+    inp.value = '';
+    showMsg('Added: ' + v);
+    setTimeout(refresh, 600);
+  });
+}
+
+function removeEntry(id) {
+  cmd('whitelist remove ' + id).then(() => {
+    showMsg('Removed: ' + id);
+    setTimeout(refresh, 600);
+  });
+}
+
+function showMsg(text) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+async function refresh() {
+  try {
+    const [wlRes, stRes] = await Promise.all([
+      fetch('/api/whitelist'),
+      fetch('/api/status'),
+    ]);
+    const wl = await wlRes.json();
+    const st = stRes.ok ? await stRes.json() : {};
+
+    wlActive = !!st.whitelist_active;
+    const statusEl = document.getElementById('wl-status');
+    const toggleBtn = document.getElementById('btn-toggle');
+    if (wlActive) {
+      statusEl.textContent = 'Whitelist is ON — only listed players can use !start';
+      statusEl.className = 'status-on';
+      toggleBtn.textContent = 'Turn OFF';
+      toggleBtn.className = 'btn btn-red btn-sm';
+    } else {
+      statusEl.textContent = 'Whitelist is OFF — everyone can use !start';
+      statusEl.className = 'status-off';
+      toggleBtn.textContent = 'Turn ON';
+      toggleBtn.className = 'btn btn-green btn-sm';
+    }
+
+    const entries = wl.entries || [];
+    document.getElementById('count').textContent = entries.length ? '(' + entries.length + ')' : '';
+    const el = document.getElementById('entries');
+    if (!entries.length) {
+      el.innerHTML = '<span class="empty">No entries — whitelist is empty</span>';
+      return;
+    }
+    el.innerHTML = entries.map(id =>
+      `<div class="entry">
+         <span class="entry-id">${escHtml(id)}</span>
+         <button class="btn btn-red btn-sm" onclick="removeEntry('${escHtml(id)}')">Remove</button>
+       </div>`
+    ).join('');
+  } catch(e) {}
+}
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>"""
+
+
+@app.route("/whitelist")
+def whitelist_page():
+    return render_template_string(WHITELIST_HTML)
 
 
 if __name__ == "__main__":
