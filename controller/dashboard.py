@@ -167,7 +167,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
   <div id="left">
     <div class="tab-bar">
       <div class="tab-btn active"  onclick="switchTab('controls')">Controls</div>
-      <div class="tab-btn"         onclick="switchTab('whitelist')">Whitelist</div>
+      <div class="tab-btn"         onclick="switchTab('whitelist')">Commands</div>
       <div class="tab-btn"         onclick="switchTab('settings')">Settings</div>
     </div>
 
