@@ -38,7 +38,7 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 
 /* Server cards */
 #cards { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2a3050; flex-shrink: 0; }
-.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 6px; padding: 9px 11px; min-width: 150px; flex: 1 1 150px; max-width: 220px; transition: border-color .2s; }
+.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 6px; padding: 9px 11px; min-width: 130px; flex: 0 1 150px; max-width: 155px; transition: border-color .2s; }
 .card.online   { border-color: #16a34a; }
 .card.starting { border-color: #d97706; }
 .card.offline  { opacity: .55; }
@@ -1220,6 +1220,9 @@ input:focus { outline:none; border-color:#3b4a7a; }
           font-weight:600; width:100%; background:#1e3a5f; color:#93c5fd; transition:opacity .15s; }
 .btn:hover { opacity:.85; }
 .btn.saved { background:#14532d; color:#4ade80; }
+.sec-head { font-size:12px; color:#4b5563; text-transform:uppercase; letter-spacing:.06em;
+            padding-bottom:5px; border-bottom:1px solid #2a3050; margin:14px 0 8px; }
+.sec-head:first-child { margin-top:0; }
 </style>
 </head>
 <body>
@@ -1239,70 +1242,76 @@ input:focus { outline:none; border-color:#3b4a7a; }
 </div>
 <script>
 const SCHEMA = [
-  { group:'Cluster', fields:[
-    {s:'cluster',k:'cluster_name',  label:'Cluster Name'},
-    {s:'cluster',k:'rcon_password', label:'RCON Password'},
-    {s:'cluster',k:'default_map',   label:'Default Map'},
-    {s:'network', k:'rcon_host',    label:'RCON Host'},
+  { group:'Cluster', sections:[
+    { title:'Cluster', fields:[
+      {s:'cluster',k:'cluster_name',  label:'Cluster Name'},
+      {s:'cluster',k:'rcon_password', label:'RCON Password'},
+      {s:'cluster',k:'default_map',   label:'Default Map'},
+      {s:'network', k:'rcon_host',    label:'RCON Host'},
+    ]},
+    { title:'Paths', fields:[
+      {s:'paths',k:'server_root',   label:'Server Root',   wide:true},
+      {s:'paths',k:'cluster_dir',   label:'Cluster Dir',   wide:true},
+      {s:'paths',k:'steamcmd_path', label:'SteamCMD Path', wide:true},
+    ]},
   ]},
-  { group:'Paths', fields:[
-    {s:'paths',k:'server_root',   label:'Server Root',   wide:true},
-    {s:'paths',k:'cluster_dir',   label:'Cluster Dir',   wide:true},
-    {s:'paths',k:'steamcmd_path', label:'SteamCMD Path', wide:true},
+  { group:'Performance', sections:[
+    { title:'General', grid:true, fields:[
+      {s:'performance',k:'max_active_servers',label:'Max Active Servers'},
+      {s:'performance',k:'max_players',       label:'Max Players'},
+      {s:'timers',     k:'poll_seconds',      label:'Poll Interval (s)'},
+    ]},
+    { title:'Timers', grid:true, fields:[
+      {s:'timers',k:'map_shutdown_minutes',         label:'Empty Map Shutdown (min)'},
+      {s:'timers',k:'autosave_minutes',             label:'Autosave Interval (min)'},
+      {s:'timers',k:'cluster_shutdown_minutes',     label:'Cluster Shutdown Warn (min)'},
+      {s:'timers',k:'startup_grace_minutes',        label:'Startup Grace (min)'},
+      {s:'timers',k:'server_start_timeout_seconds', label:'Start Timeout (s)'},
+      {s:'timers',k:'save_before_exit_seconds',     label:'Save Before Exit (s)'},
+      {s:'timers',k:'post_shutdown_wait_seconds',   label:'Post-Shutdown Wait (s)'},
+      {s:'timers',k:'crash_detection_threshold',    label:'Crash Threshold'},
+    ]},
+    { title:'Schedule & Backup', grid:true, fields:[
+      {s:'schedule',k:'restart_time',             label:'Daily Restart (HH:MM)'},
+      {s:'schedule',k:'check_updates_on_startup', label:'Check Updates on Start'},
+      {s:'backup',  k:'backup_dir',               label:'Backup Directory', wide:true},
+      {s:'backup',  k:'max_backups',              label:'Max Backups'},
+    ]},
   ]},
-  { group:'Performance', grid:true, fields:[
-    {s:'performance',k:'max_active_servers',label:'Max Active Servers'},
-    {s:'performance',k:'max_players',       label:'Max Players'},
-    {s:'timers',     k:'poll_seconds',      label:'Poll Interval (s)'},
+  { group:'Rates', sections:[
+    { title:'Game Rates', grid3:true, fields:[
+      {s:'rates',k:'xp_multiplier',              label:'XP'},
+      {s:'rates',k:'taming_speed_multiplier',    label:'Taming Speed'},
+      {s:'rates',k:'harvest_amount_multiplier',  label:'Harvest Amount'},
+      {s:'rates',k:'difficulty_offset',          label:'Difficulty Offset'},
+      {s:'rates',k:'mating_interval_multiplier', label:'Mating Interval'},
+      {s:'rates',k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed'},
+      {s:'rates',k:'global_spoiling_time_multiplier',             label:'Spoiling Time'},
+      {s:'rates',k:'global_item_decomposition_time_multiplier',   label:'Item Decomp'},
+      {s:'rates',k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp'},
+      {s:'rates',k:'crop_growth_speed_multiplier',                label:'Crop Growth'},
+      {s:'rates',k:'mating_speed_multiplier',                     label:'Mating Speed'},
+      {s:'rates',k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption'},
+    ]},
+    { title:'Breeding', grid:true, fields:[
+      {s:'breeding',k:'baby_mature_speed_multiplier',        label:'Mature Speed'},
+      {s:'breeding',k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval'},
+      {s:'breeding',k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period'},
+      {s:'breeding',k:'baby_imprint_amount_multiplier',      label:'Imprint Amount'},
+    ]},
   ]},
-  { group:'Schedule & Backup', grid:true, fields:[
-    {s:'schedule',k:'restart_time',             label:'Daily Restart (HH:MM)'},
-    {s:'schedule',k:'check_updates_on_startup', label:'Check Updates on Start'},
-    {s:'backup',  k:'backup_dir',               label:'Backup Directory', wide:true},
-    {s:'backup',  k:'max_backups',              label:'Max Backups'},
-  ]},
-  { group:'Timers', grid:true, fields:[
-    {s:'timers',k:'map_shutdown_minutes',         label:'Empty Map Shutdown (min)'},
-    {s:'timers',k:'autosave_minutes',             label:'Autosave Interval (min)'},
-    {s:'timers',k:'cluster_shutdown_minutes',     label:'Cluster Shutdown Warn (min)'},
-    {s:'timers',k:'startup_grace_minutes',        label:'Startup Grace (min)'},
-    {s:'timers',k:'server_start_timeout_seconds', label:'Start Timeout (s)'},
-    {s:'timers',k:'save_before_exit_seconds',     label:'Save Before Exit (s)'},
-    {s:'timers',k:'post_shutdown_wait_seconds',   label:'Post-Shutdown Wait (s)'},
-    {s:'timers',k:'crash_detection_threshold',    label:'Crash Threshold'},
-  ]},
-  { group:'Game Rates', grid:true, fields:[
-    {s:'rates',k:'xp_multiplier',              label:'XP'},
-    {s:'rates',k:'taming_speed_multiplier',    label:'Taming Speed'},
-    {s:'rates',k:'harvest_amount_multiplier',  label:'Harvest Amount'},
-    {s:'rates',k:'difficulty_offset',          label:'Difficulty Offset'},
-    {s:'rates',k:'mating_interval_multiplier', label:'Mating Interval'},
-    {s:'rates',k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed'},
-  ]},
-  { group:'Breeding', grid:true, fields:[
-    {s:'breeding',k:'baby_mature_speed_multiplier',        label:'Mature Speed'},
-    {s:'breeding',k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval'},
-    {s:'breeding',k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period'},
-    {s:'breeding',k:'baby_imprint_amount_multiplier',      label:'Imprint Amount'},
-  ]},
-  { group:'More Rates', grid3:true, fields:[
-    {s:'rates',k:'global_spoiling_time_multiplier',              label:'Spoiling Time'},
-    {s:'rates',k:'global_item_decomposition_time_multiplier',    label:'Item Decomp'},
-    {s:'rates',k:'global_corpse_decomposition_time_multiplier',  label:'Corpse Decomp'},
-    {s:'rates',k:'crop_growth_speed_multiplier',                 label:'Crop Growth'},
-    {s:'rates',k:'mating_speed_multiplier',                      label:'Mating Speed'},
-    {s:'rates',k:'fuel_consumption_interval_multiplier',         label:'Fuel Consumption'},
-  ]},
-  { group:'Flags', grid:true, fields:[
-    {s:'flags',k:'allow_third_person',              label:'Allow Third Person (true/false)'},
-    {s:'flags',k:'show_map_player_location',        label:'Show Map Player Location (true/false)'},
-    {s:'flags',k:'always_allow_structure_pickup',   label:'Always Allow Structure Pickup (true/false)'},
-    {s:'flags',k:'disable_structure_decay_pve',     label:'Disable Structure Decay PvE (true/false)'},
-    {s:'flags',k:'allow_cave_building_pve',         label:'Allow Cave Building PvE (true/false)'},
-    {s:'flags',k:'allow_anyone_baby_imprint_cuddle',label:'Anyone Can Imprint Cuddle (true/false)'},
-    {s:'flags',k:'allow_flyer_carry_pve',           label:'Allow Flyer Carry PvE (true/false)'},
-    {s:'flags',k:'prevent_download_survivors',      label:'Prevent Download Survivors (true/false)'},
-    {s:'flags',k:'prevent_download_items',          label:'Prevent Download Items (true/false)'},
+  { group:'Flags', sections:[
+    { title:'Server Flags', grid:true, fields:[
+      {s:'flags',k:'allow_third_person',              label:'Allow Third Person (true/false)'},
+      {s:'flags',k:'show_map_player_location',        label:'Show Map Player Location (true/false)'},
+      {s:'flags',k:'always_allow_structure_pickup',   label:'Always Allow Structure Pickup (true/false)'},
+      {s:'flags',k:'disable_structure_decay_pve',     label:'Disable Structure Decay PvE (true/false)'},
+      {s:'flags',k:'allow_cave_building_pve',         label:'Allow Cave Building PvE (true/false)'},
+      {s:'flags',k:'allow_anyone_baby_imprint_cuddle',label:'Anyone Can Imprint Cuddle (true/false)'},
+      {s:'flags',k:'allow_flyer_carry_pve',           label:'Allow Flyer Carry PvE (true/false)'},
+      {s:'flags',k:'prevent_download_survivors',      label:'Prevent Download Survivors (true/false)'},
+      {s:'flags',k:'prevent_download_items',          label:'Prevent Download Items (true/false)'},
+    ]},
   ]},
 ];
 
@@ -1326,21 +1335,30 @@ function render(data) {
   const form = document.getElementById('form');
   form.innerHTML = '';
   SCHEMA.forEach((g, i) => {
-    const sec = document.createElement('div');
-    sec.className = 'group' + (i === activeTab ? ' active' : '');
-    const wrap = document.createElement('div');
-    if (g.grid3) wrap.className = 'grid3';
-    else if (g.grid) wrap.className = 'grid2';
-    else wrap.className = 'stack';
-    for (const f of g.fields) {
-      const val = esc((data[f.s] || {})[f.k] || '');
-      const d = document.createElement('div');
-      d.className = 'field' + (f.wide ? ' wide' : '');
-      d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="${val}">`;
-      wrap.appendChild(d);
-    }
-    sec.appendChild(wrap);
-    form.appendChild(sec);
+    const groupEl = document.createElement('div');
+    groupEl.className = 'group' + (i === activeTab ? ' active' : '');
+    const multi = g.sections.length > 1;
+    g.sections.forEach((sec, si) => {
+      if (multi) {
+        const h = document.createElement('div');
+        h.className = 'sec-head' + (si === 0 ? ' sec-head:first-child' : '');
+        h.textContent = sec.title;
+        groupEl.appendChild(h);
+      }
+      const wrap = document.createElement('div');
+      if (sec.grid3) wrap.className = 'grid3';
+      else if (sec.grid) wrap.className = 'grid2';
+      else wrap.className = 'stack';
+      for (const f of sec.fields) {
+        const val = esc((data[f.s] || {})[f.k] || '');
+        const d = document.createElement('div');
+        d.className = 'field' + (f.wide ? ' wide' : '');
+        d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="${val}">`;
+        wrap.appendChild(d);
+      }
+      groupEl.appendChild(wrap);
+    });
+    form.appendChild(groupEl);
   });
 }
 
