@@ -154,9 +154,14 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 <div id="header">
   <span class="title" id="page-title">Cluster Dashboard</span>
-  <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
-    <span id="status-line">Connecting...</span>
-    <span id="restart-timer" style="font-size:12px; font-family:Consolas,monospace;"></span>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+      <span id="status-line">Connecting...</span>
+      <span id="restart-timer" style="font-size:12px; font-family:Consolas,monospace;"></span>
+    </div>
+    <button onclick="openSettings()" title="Settings"
+            style="background:none; border:none; cursor:pointer; font-size:20px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px;"
+            onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#6b7280'">⚙</button>
   </div>
 </div>
 
@@ -168,7 +173,6 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
     <div class="tab-bar">
       <div class="tab-btn active"  onclick="switchTab('controls')">Controls</div>
       <div class="tab-btn"         onclick="switchTab('whitelist')">Commands</div>
-      <div class="tab-btn"         onclick="switchTab('settings')">Settings</div>
     </div>
 
     <!-- Controls tab -->
@@ -262,16 +266,6 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
       </div>
     </div>
 
-    <!-- Settings tab -->
-    <div id="tab-settings" class="tab-panel">
-      <div id="setup-notice" style="display:none; background:#78350f; color:#fdba74; padding:7px 9px; border-radius:4px; font-size:12px; flex-shrink:0;">
-        No config.ini found — defaults loaded. Fill in your values and click Save to create it.
-        The controller will start automatically once saved.
-      </div>
-      <div style="font-size:11px; color:#4b5563; flex-shrink:0;">Edits config.ini. Changes require a controller restart.</div>
-      <div id="settings-form" style="flex:1; overflow-y:auto;"></div>
-      <button class="btn btn-blue btn-full" style="margin-top:6px; flex-shrink:0;" onclick="saveSettings()">Save Settings</button>
-    </div>
   </div>
 
   <!-- RIGHT: tabbed console / log -->
@@ -315,6 +309,24 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
   </div>
 </div>
 
+<!-- Settings modal -->
+<div id="settings-modal" onclick="if(event.target===this)closeSettings()"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:#1a1f36; border:1px solid #3b4a7a; border-radius:8px; padding:20px 22px;
+              width:480px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; gap:10px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+      <span style="font-size:15px; font-weight:700; color:#93c5fd;">Settings</span>
+      <span onclick="closeSettings()" style="cursor:pointer; font-size:18px; color:#4b5563; line-height:1;">✕</span>
+    </div>
+    <div id="setup-notice" style="display:none; background:#78350f; color:#fdba74; padding:7px 9px; border-radius:4px; font-size:12px; flex-shrink:0;">
+      No config.ini found — defaults loaded. Fill in your values and click Save to create it.
+    </div>
+    <div style="font-size:11px; color:#4b5563; flex-shrink:0;">Changes require a controller restart.</div>
+    <div id="settings-form" style="flex:1; overflow-y:auto;"></div>
+    <button class="btn btn-blue btn-full" style="flex-shrink:0;" onclick="saveSettings()">Save Settings</button>
+  </div>
+</div>
+
 <!-- Player detail modal -->
 <div id="player-modal" onclick="if(event.target===this)closePlayerModal()">
   <div id="player-modal-box">
@@ -348,7 +360,7 @@ let timerLabel           = '';
 let timerColor           = '#6b7280';
 
 // ── Left tabs ────────────────────────────────────────────────────────────────
-const LEFT_TABS = ['controls','whitelist','settings'];
+const LEFT_TABS = ['controls','whitelist'];
 function switchTab(name) {
   document.querySelectorAll('#left .tab-btn').forEach((b, i) => {
     b.classList.toggle('active', LEFT_TABS[i] === name);
@@ -356,8 +368,16 @@ function switchTab(name) {
   document.querySelectorAll('#left .tab-panel').forEach(p => {
     p.classList.toggle('active', p.id === 'tab-' + name);
   });
-  if (name === 'settings')  loadSettings();
   if (name === 'whitelist') loadWlTab();
+}
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById('settings-modal').style.display = 'flex';
+  loadSettings();
+}
+function closeSettings() {
+  document.getElementById('settings-modal').style.display = 'none';
 }
 
 // ── Whitelist tab ─────────────────────────────────────────────────────────────
@@ -947,7 +967,7 @@ async function saveSettings() {
   const notice = document.getElementById('setup-notice');
   if (r.ok) {
     if (notice) notice.style.display = 'none';
-    const btn = document.querySelector('#tab-settings .btn-blue');
+    const btn = document.querySelector('#settings-modal .btn-blue');
     const orig = btn.textContent;
     btn.textContent = 'Saved!';
     btn.classList.replace('btn-blue','btn-green');
