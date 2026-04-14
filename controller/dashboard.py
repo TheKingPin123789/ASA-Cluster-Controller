@@ -12,7 +12,8 @@ ADMIN_CMD       = os.path.join(BASE_DIR, "admin_commands.txt")
 CONFIG_FILE     = os.path.join(BASE_DIR, "config.ini")
 WHITELIST_FILE      = os.path.join(BASE_DIR, "whitelist.txt")
 SEEN_PLAYERS_FILE     = os.path.join(BASE_DIR, "seen_players.json")
-ALLOWED_COMMANDS_FILE = os.path.join(BASE_DIR, "allowed_commands.txt")
+COMMAND_CATEGORIES_FILE = os.path.join(BASE_DIR, "command_categories.json")
+ADMIN_LIST_FILE         = os.path.join(BASE_DIR, "admin_list.txt")
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -214,15 +215,29 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
         <button id="btn-wl" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
       </div>
 
-      <!-- Player commands -->
+      <!-- In-game commands -->
       <div class="sec">
-        <div class="sec-title">Player Commands</div>
-        <div id="wl-cmd-list" style="display:flex; flex-direction:column; gap:3px; margin-bottom:6px;"></div>
+        <div class="sec-title">In-Game Commands</div>
+
+        <div class="sec-title" style="color:#4ade80; margin-top:4px;">Default — everyone</div>
+        <div id="cmd-default" style="display:flex; flex-direction:column; gap:3px; margin-bottom:4px;"></div>
+        <div style="display:flex; gap:5px; margin-bottom:8px;">
+          <select id="cmd-add-default" style="flex:1;"><option value="">Add...</option></select>
+          <button class="btn btn-green btn-sm" onclick="addCmd('default')">Add</button>
+        </div>
+
+        <div class="sec-title" style="color:#fbbf24; margin-top:4px;">Whitelist only</div>
+        <div id="cmd-whitelist" style="display:flex; flex-direction:column; gap:3px; margin-bottom:4px;"></div>
+        <div style="display:flex; gap:5px; margin-bottom:8px;">
+          <select id="cmd-add-whitelist" style="flex:1;"><option value="">Add...</option></select>
+          <button class="btn btn-green btn-sm" onclick="addCmd('whitelist')">Add</button>
+        </div>
+
+        <div class="sec-title" style="color:#f87171; margin-top:4px;">Admin only</div>
+        <div id="cmd-admin" style="display:flex; flex-direction:column; gap:3px; margin-bottom:4px;"></div>
         <div style="display:flex; gap:5px;">
-          <select id="wl-cmd-select" style="flex:1;">
-            <option value="">Add command...</option>
-          </select>
-          <button class="btn btn-green btn-sm" onclick="addWlCmd()">Add</button>
+          <select id="cmd-add-admin" style="flex:1;"><option value="">Add...</option></select>
+          <button class="btn btn-green btn-sm" onclick="addCmd('admin')">Add</button>
         </div>
       </div>
 
@@ -234,6 +249,16 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
           <button class="btn btn-green btn-sm" onclick="addWlPlayer()">Add</button>
         </div>
         <div id="wl-panel"></div>
+      </div>
+
+      <!-- Admin players -->
+      <div class="sec">
+        <div class="sec-title">Admin Players</div>
+        <div style="display:flex; gap:5px; margin-bottom:6px;">
+          <input type="text" id="admin-add-input" placeholder="Steam ID to add..." style="flex:1;">
+          <button class="btn btn-green btn-sm" onclick="addAdminPlayer()">Add</button>
+        </div>
+        <div id="admin-panel" style="display:flex; flex-direction:column; gap:3px; max-height:180px; overflow-y:auto;"></div>
       </div>
     </div>
 
@@ -337,61 +362,71 @@ function switchTab(name) {
 
 // ── Whitelist tab ─────────────────────────────────────────────────────────────
 async function loadWlTab() {
-  await Promise.all([loadWlCmds(), loadWlPanel()]);
+  await Promise.all([loadCmdCategories(), loadWlPanel(), loadAdminPanel()]);
 }
 
-async function loadWlCmds() {
+async function loadCmdCategories() {
   try {
-    const r = await fetch('/api/allowed_commands');
+    const r = await fetch('/api/command_categories');
     if (!r.ok) return;
     const data = await r.json();
-    renderWlCmds(data.enabled || [], data.available || []);
+    renderCmdCategories(data.categories || {}, data.available || []);
   } catch(e) {}
 }
 
-function renderWlCmds(enabled, available) {
-  const list = document.getElementById('wl-cmd-list');
-  if (!enabled.length) {
-    list.innerHTML = '<span class="wl-empty">No commands enabled</span>';
-  } else {
-    list.innerHTML = enabled.map(c =>
-      `<div class="wl-entry">
-         <div class="wl-info"><span class="wl-id" style="color:#93c5fd;">${escHtml(c)}</span></div>
-         <button class="btn btn-red btn-sm" onclick="removeWlCmd('${escHtml(c)}')">Remove</button>
-       </div>`
-    ).join('');
+function renderCmdCategories(cats, available) {
+  const tiers = ['default', 'whitelist', 'admin'];
+  // Group by tier
+  const grouped = {default:[], whitelist:[], admin:[]};
+  for (const [c, t] of Object.entries(cats)) {
+    if (grouped[t]) grouped[t].push(c);
   }
-  // Populate add dropdown with commands not yet enabled
-  const sel = document.getElementById('wl-cmd-select');
-  sel.innerHTML = '<option value="">Add command...</option>';
-  for (const c of available) {
-    if (!enabled.includes(c)) {
-      const opt = document.createElement('option');
-      opt.value = c; opt.textContent = c;
-      sel.appendChild(opt);
+  // Assigned commands (for dropdown filtering)
+  const assigned = new Set(Object.keys(cats));
+
+  for (const tier of tiers) {
+    const listEl = document.getElementById('cmd-' + tier);
+    const selEl  = document.getElementById('cmd-add-' + tier);
+    // Render list
+    listEl.innerHTML = grouped[tier].length
+      ? grouped[tier].map(c =>
+          `<div class="wl-entry">
+             <div class="wl-info"><span class="wl-id" style="color:#93c5fd;">${escHtml(c)}</span></div>
+             <button class="btn btn-red btn-sm" onclick="removeCmd('${escHtml(c)}')">Remove</button>
+           </div>`
+        ).join('')
+      : '<span class="wl-empty">None</span>';
+    // Populate dropdown with unassigned commands
+    selEl.innerHTML = '<option value="">Add...</option>';
+    for (const c of available) {
+      if (!assigned.has(c)) {
+        const opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        selEl.appendChild(opt);
+      }
     }
   }
 }
 
-async function addWlCmd() {
-  const sel = document.getElementById('wl-cmd-select');
+async function addCmd(tier) {
+  const sel = document.getElementById('cmd-add-' + tier);
   const val = sel.value;
   if (!val) return;
-  await fetch('/api/allowed_commands', {
+  await fetch('/api/command_categories', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({action:'add', command: val})
+    body: JSON.stringify({command: val, tier})
   });
-  loadWlCmds();
+  loadCmdCategories();
 }
 
-async function removeWlCmd(c) {
-  await fetch('/api/allowed_commands', {
+async function removeCmd(c) {
+  await fetch('/api/command_categories', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({action:'remove', command: c})
+    body: JSON.stringify({command: c, tier: null})
   });
-  loadWlCmds();
+  loadCmdCategories();
 }
 
 async function addWlPlayer() {
@@ -401,6 +436,54 @@ async function addWlPlayer() {
   cmd('whitelist add ' + id);
   inp.value = '';
   setTimeout(loadWlPanel, 600);
+}
+
+async function loadAdminPanel() {
+  try {
+    const r = await fetch('/api/admin_list');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderAdminPanel(data.entries || []);
+  } catch(e) {}
+}
+
+function renderAdminPanel(entries) {
+  const el = document.getElementById('admin-panel');
+  if (!entries.length) {
+    el.innerHTML = '<span class="wl-empty">No admins configured</span>';
+    return;
+  }
+  el.innerHTML = entries.map(id =>
+    `<div class="wl-entry">
+       <div class="wl-info">
+         ${_onlinePlayerNames[id] ? `<span class="wl-name">${escHtml(_onlinePlayerNames[id])}</span>` : ''}
+         <span class="wl-id" title="${escHtml(id)}">${escHtml(id)}</span>
+       </div>
+       <button class="btn btn-red btn-sm" onclick="removeAdminPlayer('${escHtml(id)}')">Remove</button>
+     </div>`
+  ).join('');
+}
+
+async function addAdminPlayer() {
+  const inp = document.getElementById('admin-add-input');
+  const id  = inp.value.trim();
+  if (!id) return;
+  await fetch('/api/admin_list', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action:'add', id})
+  });
+  inp.value = '';
+  loadAdminPanel();
+}
+
+async function removeAdminPlayer(id) {
+  await fetch('/api/admin_list', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action:'remove', id})
+  });
+  loadAdminPanel();
 }
 
 // ── Right tabs ───────────────────────────────────────────────────────────────
@@ -987,43 +1070,78 @@ def post_settings():
         return jsonify({"error": str(exc)}), 500
 
 
-AVAILABLE_COMMANDS = ["!help", "!status", "!start"]
+AVAILABLE_COMMANDS = ["!help", "!status", "!start", "!stop", "!restart"]
+_DEFAULT_CATEGORIES = {"!help": "default", "!status": "default", "!start": "whitelist"}
 
-def _read_allowed_commands():
-    if not os.path.exists(ALLOWED_COMMANDS_FILE):
-        return list(AVAILABLE_COMMANDS)
+def _read_categories():
+    if not os.path.exists(COMMAND_CATEGORIES_FILE):
+        return dict(_DEFAULT_CATEGORIES)
     try:
-        with open(ALLOWED_COMMANDS_FILE, encoding="utf-8") as f:
-            cmds = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
-        return cmds if cmds else list(AVAILABLE_COMMANDS)
+        with open(COMMAND_CATEGORIES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if data else dict(_DEFAULT_CATEGORIES)
     except Exception:
-        return list(AVAILABLE_COMMANDS)
+        return dict(_DEFAULT_CATEGORIES)
 
 
-@app.route("/api/allowed_commands", methods=["GET"])
-def get_allowed_commands():
-    enabled = _read_allowed_commands()
-    return jsonify({"enabled": enabled, "available": AVAILABLE_COMMANDS})
+@app.route("/api/command_categories", methods=["GET"])
+def get_command_categories():
+    return jsonify({"categories": _read_categories(), "available": AVAILABLE_COMMANDS})
 
 
-@app.route("/api/allowed_commands", methods=["POST"])
-def post_allowed_commands():
+@app.route("/api/command_categories", methods=["POST"])
+def post_command_categories():
     data    = request.get_json(silent=True) or {}
-    action  = data.get("action", "")
     command = data.get("command", "").strip().lower()
+    tier    = data.get("tier")           # "default"|"whitelist"|"admin"|None=remove
     if not command:
         return jsonify({"error": "missing command"}), 400
-    enabled = set(_read_allowed_commands())
+    cats = _read_categories()
+    if tier:
+        cats[command] = tier
+    else:
+        cats.pop(command, None)
+    try:
+        with open(COMMAND_CATEGORIES_FILE, "w", encoding="utf-8") as f:
+            json.dump(cats, f, indent=2)
+        return jsonify({"ok": True, "categories": cats})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+def _read_list_file(path):
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    except Exception:
+        return []
+
+
+@app.route("/api/admin_list", methods=["GET"])
+def get_admin_list():
+    return jsonify({"entries": _read_list_file(ADMIN_LIST_FILE)})
+
+
+@app.route("/api/admin_list", methods=["POST"])
+def post_admin_list():
+    data   = request.get_json(silent=True) or {}
+    action = data.get("action", "")
+    entry  = data.get("id", "").strip()
+    if not entry:
+        return jsonify({"error": "missing id"}), 400
+    entries = set(_read_list_file(ADMIN_LIST_FILE))
     if action == "add":
-        enabled.add(command)
+        entries.add(entry)
     elif action == "remove":
-        enabled.discard(command)
+        entries.discard(entry)
     else:
         return jsonify({"error": "action must be add or remove"}), 400
     try:
-        with open(ALLOWED_COMMANDS_FILE, "w", encoding="utf-8") as f:
-            f.write("\n".join(sorted(enabled)) + "\n")
-        return jsonify({"ok": True, "enabled": sorted(enabled)})
+        with open(ADMIN_LIST_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(entries)) + "\n")
+        return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

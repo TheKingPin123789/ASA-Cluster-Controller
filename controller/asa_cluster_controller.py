@@ -28,8 +28,9 @@ STOP_FILE = os.path.join(BASE_DIR, "controller.stop")
 RESTART_MAPS_FILE = os.path.join(BASE_DIR, "restart_maps.txt")
 WHITELIST_FILE = os.path.join(BASE_DIR, "whitelist.txt")
 WHITELIST_DISABLED_FLAG = os.path.join(BASE_DIR, "whitelist_disabled.flag")
-SEEN_PLAYERS_FILE     = os.path.join(BASE_DIR, "seen_players.json")
-ALLOWED_COMMANDS_FILE = os.path.join(BASE_DIR, "allowed_commands.txt")
+SEEN_PLAYERS_FILE        = os.path.join(BASE_DIR, "seen_players.json")
+COMMAND_CATEGORIES_FILE  = os.path.join(BASE_DIR, "command_categories.json")
+ADMIN_LIST_FILE          = os.path.join(BASE_DIR, "admin_list.txt")
 
 # ── Load config (wizard runs here if needed) ──────────────
 _cfg = prompt_setup_on_startup()
@@ -416,7 +417,7 @@ def stop_server_safe(state: ServerState, reason: str) -> None:
 
 def split_chat_sender_and_message(line: str):
     line = line.strip()
-    cmd_match = re.search(r"!(start|status|stop|help)\b.*$", line, re.IGNORECASE)
+    cmd_match = re.search(r"!(start|status|stop|restart|help)\b.*$", line, re.IGNORECASE)
     if not cmd_match:
         return None, line
 
@@ -428,33 +429,75 @@ def split_chat_sender_and_message(line: str):
     return sender or None, message
 
 
-def _get_allowed_commands() -> set:
-    """Return the set of enabled player commands. Defaults to all if file missing."""
-    default = {"!help", "!status", "!start"}
-    if not os.path.exists(ALLOWED_COMMANDS_FILE):
-        return default
+_DEFAULT_CATEGORIES: Dict[str, str] = {
+    "!help":    "default",
+    "!status":  "default",
+    "!start":   "whitelist",
+}
+
+
+def _get_command_categories() -> Dict[str, str]:
+    """Return {command: tier} dict.  Tier is 'default', 'whitelist', or 'admin'."""
+    if not os.path.exists(COMMAND_CATEGORIES_FILE):
+        return dict(_DEFAULT_CATEGORIES)
     try:
-        with open(ALLOWED_COMMANDS_FILE, encoding="utf-8") as f:
-            cmds = {ln.strip().lower() for ln in f if ln.strip() and not ln.startswith("#")}
-        return cmds if cmds else default
+        with open(COMMAND_CATEGORIES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if data else dict(_DEFAULT_CATEGORIES)
     except Exception:
-        return default
+        return dict(_DEFAULT_CATEGORIES)
+
+
+def _is_admin(steam_id: Optional[str]) -> bool:
+    if not steam_id:
+        return False
+    if not os.path.exists(ADMIN_LIST_FILE):
+        return False
+    try:
+        with open(ADMIN_LIST_FILE, encoding="utf-8") as f:
+            return steam_id in {ln.strip() for ln in f if ln.strip() and not ln.startswith("#")}
+    except Exception:
+        return False
+
+
+def _check_access(tier: str, steam_id: Optional[str], origin: ServerState) -> bool:
+    """Return True if the player may use a command of the given tier."""
+    if tier == "default":
+        return True
+    if tier == "whitelist":
+        if is_whitelisted(steam_id):
+            return True
+        announce(origin, "You are not whitelisted to use this command")
+        return False
+    if tier == "admin":
+        if _is_admin(steam_id):
+            return True
+        announce(origin, "You do not have permission to use this command")
+        return False
+    return False
 
 
 def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Optional[str], message: str) -> None:
     lowered = message.strip().lower()
-    allowed = _get_allowed_commands()
+    cats    = _get_command_categories()
 
     if lowered == "!help":
-        if "!help" not in allowed:
+        tier = cats.get("!help")
+        if not tier or not _check_access(tier, steam_id, origin):
             return
-        visible = sorted(allowed)
+        visible = sorted(
+            c for c, t in cats.items()
+            if t == "default"
+            or (t == "whitelist" and is_whitelisted(steam_id))
+            or (t == "admin"     and _is_admin(steam_id))
+        )
         announce(origin, f"Commands: {' | '.join(visible)}")
         announce(origin, f"Maps: {', '.join(SERVERS.keys())}")
         return
 
     if lowered == "!status":
-        if "!status" not in allowed:
+        tier = cats.get("!status")
+        if not tier or not _check_access(tier, steam_id, origin):
             return
         active = [s for s in SERVER_STATES.values() if s.is_running]
         if active:
@@ -465,26 +508,50 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
         return
 
     start_match = re.match(r"!start\s+(.+)", lowered)
-    if start_match and "!start" not in allowed:
-        return
     if start_match:
-        if not is_whitelisted(steam_id):
-            announce(origin, "You are not whitelisted to use this command")
+        tier = cats.get("!start")
+        if not tier or not _check_access(tier, steam_id, origin):
             return
         requested = normalize_map_name(start_match.group(1))
         if not requested:
             return
-
         state = SERVER_STATES[requested]
         if state.is_running or state.is_starting:
             return
-
         active = len(active_servers())
         if active >= MAX_ACTIVE_SERVERS:
             announce(origin, f"Max servers active ({active}/{MAX_ACTIVE_SERVERS})")
             return
-
         start_server(requested)
+        return
+
+    stop_match = re.match(r"!stop\s+(.+)", lowered)
+    if stop_match:
+        tier = cats.get("!stop")
+        if not tier or not _check_access(tier, steam_id, origin):
+            return
+        requested = normalize_map_name(stop_match.group(1))
+        if not requested:
+            return
+        state = SERVER_STATES.get(requested)
+        if not state or not state.is_running:
+            announce(origin, f"{requested} is not running")
+            return
+        log(f"IN-GAME STOP {requested}: requested by {sender_name} ({steam_id})")
+        announce_all_online(f"{state.cfg.display_name} is being stopped by an admin")
+        stop_server_safe(state, "admin !stop command")
+        return
+
+    restart_match = re.match(r"!restart\s+(.+)", lowered)
+    if restart_match:
+        tier = cats.get("!restart")
+        if not tier or not _check_access(tier, steam_id, origin):
+            return
+        requested = normalize_map_name(restart_match.group(1))
+        if not requested:
+            return
+        log(f"IN-GAME RESTART {requested}: requested by {sender_name} ({steam_id})")
+        restart_single_server(requested)
         return
 
 
@@ -1153,7 +1220,7 @@ def poll_chat(state: ServerState) -> None:
             continue
 
         lower = line.lower()
-        if not any(cmd in lower for cmd in ["!start", "!status", "!help"]):
+        if not any(cmd in lower for cmd in ["!start", "!status", "!help", "!stop", "!restart"]):
             continue
 
         # Extract Steam ID from the log line (UniqueNetId:<hex>)
