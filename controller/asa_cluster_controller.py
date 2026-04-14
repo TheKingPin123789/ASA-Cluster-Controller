@@ -1546,13 +1546,19 @@ def backup_world() -> None:
         log(f"Backup pruning failed: {exc}")
 
 
+_last_saved_running_maps: list = []
+
 def _save_running_maps() -> None:
     """Write the keys of all currently running maps to disk so they can be
     restored after a restart or update cycle."""
+    global _last_saved_running_maps
     running = [k for k, s in SERVER_STATES.items() if s.is_running]
+    if running == _last_saved_running_maps:
+        return
     try:
         with open(RESTART_MAPS_FILE, "w", encoding="utf-8") as f:
             f.write(",".join(running))
+        _last_saved_running_maps = running
         log(f"Saved running maps for restore: {running}")
     except Exception as exc:
         log(f"Failed to save running maps: {exc}")
