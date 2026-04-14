@@ -92,15 +92,19 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 /* Player list */
 #player-list { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
 .pl-entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 5px; }
-.pl-name { font-size: 12px; color: #dde1e7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-map  { font-size: 10px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
+.pl-info  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pl-name  { font-size: 12px; color: #dde1e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-id    { font-family: Consolas, monospace; font-size: 10px; color: #4b5563; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-map   { font-size: 10px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
 .pl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
 
 /* Whitelist panel */
 #wl-panel { display: none; margin-top: 6px; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
 #wl-panel.open { display: flex; }
 .wl-entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 6px; }
-.wl-id { font-family: Consolas, monospace; font-size: 11px; color: #a3e635; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-info  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wl-name  { font-size: 11px; color: #dde1e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-id    { font-family: Consolas, monospace; font-size: 10px; color: #a3e635; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
 
 /* Right panel: console + log stacked */
@@ -308,6 +312,7 @@ function toggleWhitelist() { cmd(whitelistActive ? 'whitelist off' : 'whitelist 
 
 // ── Whitelist panel ───────────────────────────────────────────────────────────
 let wlPanelOpen = false;
+let _onlinePlayerNames = {};   // id -> name, refreshed each status poll
 
 function toggleWlPanel() {
   wlPanelOpen = !wlPanelOpen;
@@ -333,12 +338,19 @@ function renderWlPanel(entries) {
     el.innerHTML = '<span class="wl-empty">No entries — whitelist is empty</span>';
     return;
   }
-  el.innerHTML = entries.map(id =>
-    `<div class="wl-entry">
-       <span class="wl-id" title="${escHtml(id)}">${escHtml(id)}</span>
+  el.innerHTML = entries.map(id => {
+    const name = _onlinePlayerNames[id];
+    const nameHtml = name
+      ? `<span class="wl-name" title="${escHtml(name)}">${escHtml(name)}</span>`
+      : '';
+    return `<div class="wl-entry">
+       <div class="wl-info">
+         ${nameHtml}
+         <span class="wl-id" title="${escHtml(id)}">${escHtml(id)}</span>
+       </div>
        <button class="btn btn-red btn-sm" onclick="wlRemove('${escHtml(id)}')">Remove</button>
-     </div>`
-  ).join('');
+     </div>`;
+  }).join('');
 }
 
 function wlRemove(id) {
@@ -350,9 +362,11 @@ function wlRemove(id) {
 function renderPlayerList(data) {
   const el = document.getElementById('player-list');
   const players = [];
+  _onlinePlayerNames = {};
   for (const [key, s] of Object.entries(data.servers || {})) {
     for (const p of (s.player_list || [])) {
       players.push({ name: p.name, id: p.id, map: MAP_DISPLAY[key] || key });
+      _onlinePlayerNames[p.id] = p.name;
     }
   }
   if (!players.length) {
@@ -361,9 +375,12 @@ function renderPlayerList(data) {
   }
   el.innerHTML = players.map(p =>
     `<div class="pl-entry">
-       <span class="pl-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span>
+       <div class="pl-info">
+         <span class="pl-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span>
+         <span class="pl-id"  title="${escHtml(p.id)}">${escHtml(p.id)}</span>
+       </div>
        <span class="pl-map">${escHtml(p.map)}</span>
-       <button class="btn btn-green btn-sm" title="Add to whitelist"  onclick="cmd('whitelist add ${escHtml(p.id)}')">+WL</button>
+       <button class="btn btn-green btn-sm" title="Add to whitelist"    onclick="cmd('whitelist add ${escHtml(p.id)}')">+WL</button>
        <button class="btn btn-red   btn-sm" title="Remove from whitelist" onclick="cmd('whitelist remove ${escHtml(p.id)}')">-WL</button>
      </div>`
   ).join('');
