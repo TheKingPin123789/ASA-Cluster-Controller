@@ -296,12 +296,34 @@ def cluster_has_players() -> bool:
     return any(s.player_count > 0 for s in SERVER_STATES.values())
 
 
+def _read_live_cfg() -> configparser.RawConfigParser:
+    """Re-read config.ini from disk so settings-page changes apply on the next server start
+    without needing a full controller restart."""
+    c = configparser.RawConfigParser()
+    try:
+        c.read(os.path.join(BASE_DIR, "config.ini"), encoding="utf-8")
+    except Exception:
+        pass
+    return c
+
+
+def _lci(c: configparser.RawConfigParser, section: str, key: str, fallback: str) -> str:
+    try:
+        return c.get(section, key)
+    except Exception:
+        return fallback
+
+
 def _patch_game_user_settings() -> None:
     """Write controlled settings from config.ini into GameUserSettings.ini before server launch."""
     settings_path = os.path.join(
         SERVER_ROOT, "ShooterGame", "Saved", "Config", "WindowsServer", "GameUserSettings.ini"
     )
     os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+
+    # Read config fresh so dashboard edits take effect without a controller restart
+    c = _read_live_cfg()
+    def r(s, k, fb): return _lci(c, s, k, fb)
 
     gus = configparser.RawConfigParser(strict=False)
     gus.optionxform = str  # preserve key casing
@@ -311,29 +333,31 @@ def _patch_game_user_settings() -> None:
     if not gus.has_section("ServerSettings"):
         gus.add_section("ServerSettings")
 
+    def _b(s, k, fb): return "True" if r(s, k, fb).lower() == "true" else "False"
+
     desired = {
-        "MaxPlayers":                    str(MAX_PLAYERS),
-        "XPMultiplier":                  XP_MULTIPLIER,
-        "TamingSpeedMultiplier":         TAMING_SPEED_MULTIPLIER,
-        "HarvestAmountMultiplier":       HARVEST_AMOUNT_MULTIPLIER,
-        "DifficultyOffset":              DIFFICULTY_OFFSET,
-        "MatingIntervalMultiplier":              MATING_INTERVAL_MULT,
-        "EggHatchSpeedMultiplier":               EGG_HATCH_SPEED_MULT,
-        "GlobalSpoilingTimeMultiplier":          GLOBAL_SPOILING_TIME_MULT,
-        "GlobalItemDecompositionTimeMultiplier": GLOBAL_ITEM_DECOMP_MULT,
-        "GlobalCorpseDecompositionTimeMultiplier": GLOBAL_CORPSE_DECOMP_MULT,
-        "CropGrowthSpeedMultiplier":             CROP_GROWTH_SPEED_MULT,
-        "MatingSpeedMultiplier":                 MATING_SPEED_MULT,
-        "FuelConsumptionIntervalMultiplier":     FUEL_CONSUMPTION_MULT,
-        "AlwaysAllowStructurePickup":            "True" if FLAG_STRUCTURE_PICKUP     else "False",
-        "DisableStructureDecayPvE":              "True" if FLAG_DISABLE_STRUCT_DECAY else "False",
-        "AllowCaveBuildingPvE":                  "True" if FLAG_CAVE_BUILDING        else "False",
-        "AllowAnyoneBabyImprintCuddle":          "True" if FLAG_ANYONE_IMPRINT       else "False",
-        "AllowFlyerCarryPvE":                    "True" if FLAG_FLYER_CARRY          else "False",
-        "BabyMatureSpeedMultiplier":             BABY_MATURE_SPEED_MULT,
-        "BabyCuddleIntervalMultiplier":  BABY_CUDDLE_INTERVAL_MULT,
-        "BabyCuddleGracePeriodMultiplier": BABY_CUDDLE_GRACE_PERIOD_MULT,
-        "BabyImprintAmountMultiplier":   BABY_IMPRINT_AMOUNT_MULT,
+        "MaxPlayers":                            r("performance", "max_players",                            str(MAX_PLAYERS)),
+        "XPMultiplier":                          r("rates",       "xp_multiplier",                         XP_MULTIPLIER),
+        "TamingSpeedMultiplier":                 r("rates",       "taming_speed_multiplier",                TAMING_SPEED_MULTIPLIER),
+        "HarvestAmountMultiplier":               r("rates",       "harvest_amount_multiplier",              HARVEST_AMOUNT_MULTIPLIER),
+        "DifficultyOffset":                      r("rates",       "difficulty_offset",                      DIFFICULTY_OFFSET),
+        "MatingIntervalMultiplier":              r("rates",       "mating_interval_multiplier",             MATING_INTERVAL_MULT),
+        "EggHatchSpeedMultiplier":               r("rates",       "egg_hatch_speed_multiplier",             EGG_HATCH_SPEED_MULT),
+        "GlobalSpoilingTimeMultiplier":          r("rates",       "global_spoiling_time_multiplier",        GLOBAL_SPOILING_TIME_MULT),
+        "GlobalItemDecompositionTimeMultiplier": r("rates",       "global_item_decomposition_time_multiplier", GLOBAL_ITEM_DECOMP_MULT),
+        "GlobalCorpseDecompositionTimeMultiplier": r("rates",     "global_corpse_decomposition_time_multiplier", GLOBAL_CORPSE_DECOMP_MULT),
+        "CropGrowthSpeedMultiplier":             r("rates",       "crop_growth_speed_multiplier",           CROP_GROWTH_SPEED_MULT),
+        "MatingSpeedMultiplier":                 r("rates",       "mating_speed_multiplier",                MATING_SPEED_MULT),
+        "FuelConsumptionIntervalMultiplier":     r("rates",       "fuel_consumption_interval_multiplier",   FUEL_CONSUMPTION_MULT),
+        "AlwaysAllowStructurePickup":            _b("flags", "always_allow_structure_pickup",   "true"),
+        "DisableStructureDecayPvE":              _b("flags", "disable_structure_decay_pve",     "false"),
+        "AllowCaveBuildingPvE":                  _b("flags", "allow_cave_building_pve",         "false"),
+        "AllowAnyoneBabyImprintCuddle":          _b("flags", "allow_anyone_baby_imprint_cuddle","false"),
+        "AllowFlyerCarryPvE":                    _b("flags", "allow_flyer_carry_pve",           "true"),
+        "BabyMatureSpeedMultiplier":             r("breeding", "baby_mature_speed_multiplier",           BABY_MATURE_SPEED_MULT),
+        "BabyCuddleIntervalMultiplier":          r("breeding", "baby_cuddle_interval_multiplier",        BABY_CUDDLE_INTERVAL_MULT),
+        "BabyCuddleGracePeriodMultiplier":       r("breeding", "baby_cuddle_grace_period_multiplier",    BABY_CUDDLE_GRACE_PERIOD_MULT),
+        "BabyImprintAmountMultiplier":           r("breeding", "baby_imprint_amount_multiplier",         BABY_IMPRINT_AMOUNT_MULT),
     }
 
     changed = []
@@ -362,11 +386,20 @@ def start_server(key: str) -> bool:
 
     _patch_game_user_settings()
 
+    # Re-read config fresh so settings-page changes apply without a controller restart
+    _lc = _read_live_cfg()
+    def _lr(s, k, fb): return _lci(_lc, s, k, fb)
+    _max_players   = _lr("performance", "max_players",   str(MAX_PLAYERS))
+    _third_person  = _lr("flags", "allow_third_person",            "false").lower() == "true"
+    _show_map_loc  = _lr("flags", "show_map_player_location",      "true").lower()  == "true"
+    _no_dl_surv    = _lr("flags", "prevent_download_survivors",    "false").lower() == "true"
+    _no_dl_items   = _lr("flags", "prevent_download_items",        "false").lower() == "true"
+
     session_name = f"{CLUSTER_NAME}_{state.cfg.display_name.replace(' ', '')}"
     map_arg = (
         f"{state.cfg.map_name}"
         f"?SessionName={session_name}"
-        f"?MaxPlayers={MAX_PLAYERS}"
+        f"?MaxPlayers={_max_players}"
         f"?Port={state.cfg.game_port}"
         f"?QueryPort={state.cfg.query_port}"
         f"?RCONEnabled=True"
@@ -378,13 +411,13 @@ def start_server(key: str) -> bool:
         f"-ClusterDirOverride={CLUSTER_DIR}",
         f"-ClusterId={CLUSTER_ID}",
     ]
-    if FLAG_THIRD_PERSON:
+    if _third_person:
         flags.append("-AllowThirdPersonPlayer")
-    if FLAG_SHOW_MAP_LOC:
+    if _show_map_loc:
         flags.append("-ShowMapPlayerLocation")
-    if FLAG_NO_DL_SURVIVORS:
+    if _no_dl_surv:
         flags.append("-PreventDownloadSurvivors")
-    if FLAG_NO_DL_ITEMS:
+    if _no_dl_items:
         flags.append("-PreventDownloadItems")
 
     log(f"Starting {key}")
