@@ -23,7 +23,7 @@ HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ASA Cluster Dashboard</title>
+<title>Cluster Dashboard</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif; font-size: 14px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -152,7 +152,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 <body>
 
 <div id="header">
-  <span class="title">ASA Cluster Dashboard</span>
+  <span class="title" id="page-title">Cluster Dashboard</span>
   <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
     <span id="status-line">Connecting...</span>
     <span id="restart-timer" style="font-size:12px; font-family:Consolas,monospace;"></span>
@@ -561,8 +561,16 @@ function cardAction(key, action) {
 }
 
 const cardEls = {};
+let _titleSet = false;
 function renderCards(data) {
   if (!data || !data.servers) return;
+
+  if (!_titleSet && data.cluster_name) {
+    const t = data.cluster_name + ' Dashboard';
+    document.getElementById('page-title').textContent = t;
+    document.title = t;
+    _titleSet = true;
+  }
 
   whitelistActive = !!data.whitelist_active;
   const wlBtn = document.getElementById('btn-wl');

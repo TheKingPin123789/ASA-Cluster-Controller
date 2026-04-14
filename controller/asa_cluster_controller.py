@@ -1315,6 +1315,7 @@ def write_cluster_status() -> None:
     server_found = os.path.exists(server_exe)
 
     payload = {
+        "cluster_name": CLUSTER_NAME,
         "servers": servers_data,
         "total_players": total_players,
         "cluster_shutdown_scheduled": CLUSTER.shutdown_scheduled,
