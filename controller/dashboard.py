@@ -107,21 +107,29 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 .wl-id    { font-family: Consolas, monospace; font-size: 10px; color: #a3e635; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
 
-/* Right panel: console + log stacked */
-#console-wrap { flex-shrink: 0; display: flex; flex-direction: column; }
-#console-out  { height: 500px; background: #0a0a12; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; padding: 6px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12px; color: #93c5fd; white-space: pre-wrap; word-break: break-all; }
-#console-input-bar { display: flex; gap: 5px; background: #131825; border: 1px solid #2a3050; border-radius: 0 0 4px 4px; padding: 5px 7px; }
+/* Right panel: tabbed console / log */
+#right-tab-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #222840; border: 1px solid #3b4a7a; border-radius: 0 4px 4px 4px; }
+#console-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 8px; }
+#console-out  { flex: 1; background: #0a0a12; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; padding: 6px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12px; color: #93c5fd; white-space: pre-wrap; word-break: break-all; }
+#console-input-bar { display: flex; gap: 5px; background: #131825; border: 1px solid #2a3050; border-radius: 0 0 4px 4px; padding: 5px 7px; flex-shrink: 0; }
 #console-input-bar input { flex: 1; background: transparent; border: none; outline: none; color: #dde1e7; font-size: 12px; font-family: Consolas, monospace; }
 #console-input-bar input::placeholder { color: #4b5563; }
-.console-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; flex-shrink: 0; }
-.console-header span { font-size: 11px; color: #4b5563; }
 .quick-cmds { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; flex-shrink: 0; }
-
-/* Log panel */
-#log-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#log-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 8px; }
 #log { flex: 1; background: #0a0a12; border: 1px solid #2a3050; border-radius: 4px; padding: 8px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12px; color: #a3e635; white-space: pre-wrap; word-break: break-all; }
-.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; flex-shrink: 0; }
-.panel-header span { font-size: 11px; color: #4b5563; }
+.log-header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 4px; flex-shrink: 0; }
+
+/* Player modal */
+#player-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:1000; align-items:center; justify-content:center; }
+#player-modal.open { display:flex; }
+#player-modal-box { background:#1a1f36; border:1px solid #3b4a7a; border-radius:8px; padding:20px 22px; min-width:340px; max-width:420px; width:90%; display:flex; flex-direction:column; gap:12px; }
+.pm-title { font-size:15px; font-weight:700; color:#93c5fd; }
+.pm-row { display:flex; flex-direction:column; gap:2px; }
+.pm-label { font-size:10px; color:#4b5563; text-transform:uppercase; letter-spacing:.06em; }
+.pm-value { font-size:13px; color:#dde1e7; word-break:break-all; }
+.pm-value.mono { font-family:Consolas,monospace; font-size:12px; color:#a3e635; }
+.pm-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+.pm-close { align-self:flex-end; cursor:pointer; font-size:18px; color:#4b5563; line-height:1; margin-top:-8px; }
 
 /* Settings form */
 .settings-section { margin-top: 6px; }
@@ -204,38 +212,56 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
     </div>
   </div>
 
-  <!-- RIGHT: admin console + log -->
+  <!-- RIGHT: tabbed console / log -->
   <div id="right">
-
-    <!-- Admin console -->
-    <div id="console-wrap">
-      <div class="console-header">
-        <span>Admin Console</span>
-      </div>
-      <div id="console-out"></div>
-      <div id="console-input-bar">
-        <span style="color:#4b5563; font-size:12px; font-family:Consolas;">$</span>
-        <input id="cmd-input" type="text" placeholder="e.g. start ragnarok"
-               onkeydown="if(event.key==='Enter')sendConsole()">
-        <button class="btn btn-blue btn-sm" onclick="sendConsole()">Send</button>
-      </div>
-      <div class="quick-cmds">
-        <button class="btn btn-gray btn-sm" onclick="runCmd('help')">help</button>
-      </div>
+    <div class="tab-bar">
+      <div class="tab-btn active" onclick="switchRightTab('console')">Admin Console</div>
+      <div class="tab-btn"        onclick="switchRightTab('log')">Controller Log</div>
     </div>
+    <div id="right-tab-content">
 
-    <!-- Full log -->
-    <div id="log-wrap">
-      <div class="panel-header">
-        <span>Controller Log</span>
-        <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:11px; color:#4b5563;">
-          <input type="checkbox" id="auto-scroll" checked onchange="autoScroll=this.checked">
-          Auto-scroll
-        </label>
+      <!-- Admin console panel -->
+      <div id="right-console" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+        <div id="console-wrap">
+          <div id="console-out"></div>
+          <div id="console-input-bar">
+            <span style="color:#4b5563; font-size:12px; font-family:Consolas;">$</span>
+            <input id="cmd-input" type="text" placeholder="e.g. start ragnarok"
+                   onkeydown="if(event.key==='Enter')sendConsole()">
+            <button class="btn btn-blue btn-sm" onclick="sendConsole()">Send</button>
+          </div>
+          <div class="quick-cmds">
+            <button class="btn btn-gray btn-sm" onclick="runCmd('help')">help</button>
+          </div>
+        </div>
       </div>
-      <div id="log"></div>
-    </div>
 
+      <!-- Log panel -->
+      <div id="right-log" style="flex:1; display:none; flex-direction:column; overflow:hidden;">
+        <div id="log-wrap">
+          <div class="log-header">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:11px; color:#4b5563;">
+              <input type="checkbox" id="auto-scroll" checked onchange="autoScroll=this.checked">
+              Auto-scroll
+            </label>
+          </div>
+          <div id="log"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Player detail modal -->
+<div id="player-modal" onclick="if(event.target===this)closePlayerModal()">
+  <div id="player-modal-box">
+    <span class="pm-close" onclick="closePlayerModal()">✕</span>
+    <div class="pm-title" id="pm-name"></div>
+    <div class="pm-row"><div class="pm-label">Steam ID</div><div class="pm-value mono" id="pm-id"></div></div>
+    <div class="pm-row"><div class="pm-label">Server</div><div class="pm-value" id="pm-map"></div></div>
+    <div class="pm-row"><div class="pm-label">Whitelist</div><div class="pm-value" id="pm-wl"></div></div>
+    <div class="pm-actions" id="pm-actions"></div>
   </div>
 </div>
 
@@ -255,15 +281,24 @@ let timerTarget          = null;   // unix seconds
 let timerLabel           = '';
 let timerColor           = '#6b7280';
 
-// ── Tabs ────────────────────────────────────────────────────────────────────
+// ── Left tabs ────────────────────────────────────────────────────────────────
 function switchTab(name) {
-  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+  document.querySelectorAll('#left .tab-btn').forEach((b, i) => {
     b.classList.toggle('active', ['controls','settings'][i] === name);
   });
-  document.querySelectorAll('.tab-panel').forEach(p => {
+  document.querySelectorAll('#left .tab-panel').forEach(p => {
     p.classList.toggle('active', p.id === 'tab-' + name);
   });
   if (name === 'settings') loadSettings();
+}
+
+// ── Right tabs ───────────────────────────────────────────────────────────────
+function switchRightTab(name) {
+  document.querySelectorAll('#right .tab-bar .tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['console','log'][i] === name);
+  });
+  document.getElementById('right-console').style.display = name === 'console' ? 'flex' : 'none';
+  document.getElementById('right-log').style.display     = name === 'log'     ? 'flex' : 'none';
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -359,31 +394,67 @@ function wlRemove(id) {
 }
 
 // ── Player list ───────────────────────────────────────────────────────────────
+let _onlinePlayers = [];   // full player objects {name,id,map,mapKey}
+
 function renderPlayerList(data) {
   const el = document.getElementById('player-list');
-  const players = [];
+  _onlinePlayers = [];
   _onlinePlayerNames = {};
   for (const [key, s] of Object.entries(data.servers || {})) {
     for (const p of (s.player_list || [])) {
-      players.push({ name: p.name, id: p.id, map: MAP_DISPLAY[key] || key });
+      _onlinePlayers.push({ name: p.name, id: p.id, map: MAP_DISPLAY[key] || key, mapKey: key });
       _onlinePlayerNames[p.id] = p.name;
     }
   }
-  if (!players.length) {
+  if (!_onlinePlayers.length) {
     el.innerHTML = '<span class="pl-empty">No players online</span>';
     return;
   }
-  el.innerHTML = players.map(p =>
-    `<div class="pl-entry">
+  el.innerHTML = _onlinePlayers.map((p, i) =>
+    `<div class="pl-entry" style="cursor:pointer;" onclick="openPlayerModal(${i})" title="Click for details">
        <div class="pl-info">
-         <span class="pl-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span>
-         <span class="pl-id"  title="${escHtml(p.id)}">${escHtml(p.id)}</span>
+         <span class="pl-name">${escHtml(p.name)}</span>
+         <span class="pl-id">${escHtml(p.id)}</span>
        </div>
        <span class="pl-map">${escHtml(p.map)}</span>
-       <button class="btn btn-green btn-sm" title="Add to whitelist"    onclick="cmd('whitelist add ${escHtml(p.id)}')">+WL</button>
-       <button class="btn btn-red   btn-sm" title="Remove from whitelist" onclick="cmd('whitelist remove ${escHtml(p.id)}')">-WL</button>
      </div>`
   ).join('');
+}
+
+// ── Player modal ──────────────────────────────────────────────────────────────
+function openPlayerModal(idx) {
+  const p = _onlinePlayers[idx];
+  if (!p) return;
+  document.getElementById('pm-name').textContent = p.name;
+  document.getElementById('pm-id').textContent   = p.id;
+  document.getElementById('pm-map').textContent  = p.map;
+
+  // Check whitelist status from the wl panel if it's been loaded
+  const wlEl = document.getElementById('wl-panel');
+  const wlIds = Array.from(wlEl.querySelectorAll('.wl-id')).map(e => e.textContent.trim());
+  const onWl  = wlIds.includes(p.id);
+  document.getElementById('pm-wl').innerHTML =
+    onWl ? '<span style="color:#4ade80">✔ Whitelisted</span>'
+         : '<span style="color:#6b7280">Not whitelisted</span>';
+
+  const safeId = escHtml(p.id);
+  document.getElementById('pm-actions').innerHTML = `
+    <button class="btn btn-green btn-sm" onclick="cmd('whitelist add ${safeId}'); refreshPmWl('${safeId}', true)">+WL Add</button>
+    <button class="btn btn-red   btn-sm" onclick="cmd('whitelist remove ${safeId}'); refreshPmWl('${safeId}', false)">−WL Remove</button>
+  `;
+
+  document.getElementById('player-modal').classList.add('open');
+}
+
+function refreshPmWl(id, added) {
+  document.getElementById('pm-wl').innerHTML = added
+    ? '<span style="color:#4ade80">✔ Whitelisted</span>'
+    : '<span style="color:#6b7280">Not whitelisted</span>';
+  setTimeout(loadWlPanel, 600);
+}
+
+function closePlayerModal() {
+  document.getElementById('player-modal').classList.remove('open');
 }
 
 // ── Server cards ─────────────────────────────────────────────────────────────
