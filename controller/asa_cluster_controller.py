@@ -28,7 +28,8 @@ STOP_FILE = os.path.join(BASE_DIR, "controller.stop")
 RESTART_MAPS_FILE = os.path.join(BASE_DIR, "restart_maps.txt")
 WHITELIST_FILE = os.path.join(BASE_DIR, "whitelist.txt")
 WHITELIST_DISABLED_FLAG = os.path.join(BASE_DIR, "whitelist_disabled.flag")
-SEEN_PLAYERS_FILE = os.path.join(BASE_DIR, "seen_players.json")
+SEEN_PLAYERS_FILE     = os.path.join(BASE_DIR, "seen_players.json")
+ALLOWED_COMMANDS_FILE = os.path.join(BASE_DIR, "allowed_commands.txt")
 
 # ── Load config (wizard runs here if needed) ──────────────
 _cfg = prompt_setup_on_startup()
@@ -427,15 +428,34 @@ def split_chat_sender_and_message(line: str):
     return sender or None, message
 
 
+def _get_allowed_commands() -> set:
+    """Return the set of enabled player commands. Defaults to all if file missing."""
+    default = {"!help", "!status", "!start"}
+    if not os.path.exists(ALLOWED_COMMANDS_FILE):
+        return default
+    try:
+        with open(ALLOWED_COMMANDS_FILE, encoding="utf-8") as f:
+            cmds = {ln.strip().lower() for ln in f if ln.strip() and not ln.startswith("#")}
+        return cmds if cmds else default
+    except Exception:
+        return default
+
+
 def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Optional[str], message: str) -> None:
     lowered = message.strip().lower()
+    allowed = _get_allowed_commands()
 
     if lowered == "!help":
-        announce(origin, "Commands: !help | !start <map> | !status")
+        if "!help" not in allowed:
+            return
+        visible = sorted(allowed)
+        announce(origin, f"Commands: {' | '.join(visible)}")
         announce(origin, f"Maps: {', '.join(SERVERS.keys())}")
         return
 
     if lowered == "!status":
+        if "!status" not in allowed:
+            return
         active = [s for s in SERVER_STATES.values() if s.is_running]
         if active:
             parts = [f"{s.cfg.key}:{s.player_count}" for s in active]
@@ -445,6 +465,8 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
         return
 
     start_match = re.match(r"!start\s+(.+)", lowered)
+    if start_match and "!start" not in allowed:
+        return
     if start_match:
         if not is_whitelisted(steam_id):
             announce(origin, "You are not whitelisted to use this command")

@@ -11,7 +11,8 @@ ADMIN_LOG_FILE  = os.path.join(BASE_DIR, "admin_log.txt")
 ADMIN_CMD       = os.path.join(BASE_DIR, "admin_commands.txt")
 CONFIG_FILE     = os.path.join(BASE_DIR, "config.ini")
 WHITELIST_FILE      = os.path.join(BASE_DIR, "whitelist.txt")
-SEEN_PLAYERS_FILE   = os.path.join(BASE_DIR, "seen_players.json")
+SEEN_PLAYERS_FILE     = os.path.join(BASE_DIR, "seen_players.json")
+ALLOWED_COMMANDS_FILE = os.path.join(BASE_DIR, "allowed_commands.txt")
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -55,7 +56,7 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 
 /* Tabs */
 .tab-bar { display: flex; gap: 2px; flex-shrink: 0; }
-.tab-btn { padding: 5px 13px; background: #1a1f36; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 12px; color: #9ca3af; }
+.tab-btn { padding: 5px 8px; flex: 1; text-align: center; background: #1a1f36; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 12px; color: #9ca3af; }
 .tab-btn.active { background: #222840; color: #fff; border-color: #3b4a7a; }
 .tab-panel { display: none; flex: 1; background: #222840; border: 1px solid #3b4a7a; border-radius: 0 4px 4px 4px; padding: 10px; overflow-y: auto; flex-direction: column; gap: 8px; }
 .tab-panel.active { display: flex; }
@@ -162,11 +163,12 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 <div id="cards"><!-- injected by JS --></div>
 
 <div id="main">
-  <!-- LEFT: controls / settings tabs -->
+  <!-- LEFT: controls / whitelist / settings tabs -->
   <div id="left">
     <div class="tab-bar">
-      <div class="tab-btn active" onclick="switchTab('controls')">Controls</div>
-      <div class="tab-btn" onclick="switchTab('settings')">Settings</div>
+      <div class="tab-btn active"  onclick="switchTab('controls')">Controls</div>
+      <div class="tab-btn"         onclick="switchTab('whitelist')">Whitelist</div>
+      <div class="tab-btn"         onclick="switchTab('settings')">Settings</div>
     </div>
 
     <!-- Controls tab -->
@@ -192,22 +194,8 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
       </div>
 
       <div class="sec">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-          <div class="sec-title" style="margin-bottom:0;">Online Players</div>
-          <div style="display:flex; align-items:center; gap:5px;">
-            <span style="font-size:10px; color:#4b5563;">!start whitelist:</span>
-            <button id="btn-wl" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
-          </div>
-        </div>
+        <div class="sec-title" style="margin-bottom:6px;">Online Players</div>
         <div id="player-list"><span class="pl-empty">No players online</span></div>
-      </div>
-
-      <div class="sec">
-        <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;" onclick="toggleWlPanel()">
-          <div class="sec-title" style="margin-bottom:0;">Whitelist</div>
-          <span id="wl-chevron" style="font-size:10px; color:#4b5563;">▶ show</span>
-        </div>
-        <div id="wl-panel"></div>
       </div>
 
       <div class="sec">
@@ -217,7 +205,40 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
         </div>
         <div id="ap-panel"></div>
       </div>
+    </div>
 
+    <!-- Whitelist tab -->
+    <div id="tab-whitelist" class="tab-panel">
+      <!-- !start whitelist toggle -->
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:4px 0 8px;">
+        <span style="font-size:12px; color:#9ca3af;">Require whitelist for !start</span>
+        <button id="btn-wl" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
+      </div>
+
+      <!-- Player commands -->
+      <div class="sec">
+        <div class="sec-title">Player Commands</div>
+        <div id="wl-cmd-list" style="display:flex; flex-direction:column; gap:3px; margin-bottom:6px;"></div>
+        <div style="display:flex; gap:5px;">
+          <select id="wl-cmd-select" style="flex:1;">
+            <option value="">Add command...</option>
+          </select>
+          <button class="btn btn-green btn-sm" onclick="addWlCmd()">Add</button>
+        </div>
+      </div>
+
+      <!-- Whitelisted players -->
+      <div class="sec">
+        <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; margin-bottom:4px;" onclick="toggleWlPanel()">
+          <div class="sec-title" style="margin-bottom:0;">Whitelisted Players</div>
+          <span id="wl-chevron" style="font-size:10px; color:#4b5563;">▶ show</span>
+        </div>
+        <div id="wl-panel"></div>
+        <div style="display:flex; gap:5px; margin-top:6px;">
+          <input type="text" id="wl-add-input" placeholder="Steam ID to add..." style="flex:1;">
+          <button class="btn btn-green btn-sm" onclick="addWlPlayer()">Add</button>
+        </div>
+      </div>
     </div>
 
     <!-- Settings tab -->
@@ -306,14 +327,84 @@ let timerLabel           = '';
 let timerColor           = '#6b7280';
 
 // ── Left tabs ────────────────────────────────────────────────────────────────
+const LEFT_TABS = ['controls','whitelist','settings'];
 function switchTab(name) {
   document.querySelectorAll('#left .tab-btn').forEach((b, i) => {
-    b.classList.toggle('active', ['controls','settings'][i] === name);
+    b.classList.toggle('active', LEFT_TABS[i] === name);
   });
   document.querySelectorAll('#left .tab-panel').forEach(p => {
     p.classList.toggle('active', p.id === 'tab-' + name);
   });
-  if (name === 'settings') loadSettings();
+  if (name === 'settings')  loadSettings();
+  if (name === 'whitelist') loadWlTab();
+}
+
+// ── Whitelist tab ─────────────────────────────────────────────────────────────
+async function loadWlTab() {
+  await Promise.all([loadWlCmds(), loadWlPanel()]);
+}
+
+async function loadWlCmds() {
+  try {
+    const r = await fetch('/api/allowed_commands');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderWlCmds(data.enabled || [], data.available || []);
+  } catch(e) {}
+}
+
+function renderWlCmds(enabled, available) {
+  const list = document.getElementById('wl-cmd-list');
+  if (!enabled.length) {
+    list.innerHTML = '<span class="wl-empty">No commands enabled</span>';
+  } else {
+    list.innerHTML = enabled.map(c =>
+      `<div class="wl-entry">
+         <div class="wl-info"><span class="wl-id" style="color:#93c5fd;">${escHtml(c)}</span></div>
+         <button class="btn btn-red btn-sm" onclick="removeWlCmd('${escHtml(c)}')">Remove</button>
+       </div>`
+    ).join('');
+  }
+  // Populate add dropdown with commands not yet enabled
+  const sel = document.getElementById('wl-cmd-select');
+  sel.innerHTML = '<option value="">Add command...</option>';
+  for (const c of available) {
+    if (!enabled.includes(c)) {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      sel.appendChild(opt);
+    }
+  }
+}
+
+async function addWlCmd() {
+  const sel = document.getElementById('wl-cmd-select');
+  const val = sel.value;
+  if (!val) return;
+  await fetch('/api/allowed_commands', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action:'add', command: val})
+  });
+  loadWlCmds();
+}
+
+async function removeWlCmd(c) {
+  await fetch('/api/allowed_commands', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action:'remove', command: c})
+  });
+  loadWlCmds();
+}
+
+async function addWlPlayer() {
+  const inp = document.getElementById('wl-add-input');
+  const id  = inp.value.trim();
+  if (!id) return;
+  cmd('whitelist add ' + id);
+  inp.value = '';
+  setTimeout(loadWlPanel, 600);
 }
 
 // ── Right tabs ───────────────────────────────────────────────────────────────
@@ -906,6 +997,47 @@ def post_settings():
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             cfg.write(f)
         return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+AVAILABLE_COMMANDS = ["!help", "!status", "!start"]
+
+def _read_allowed_commands():
+    if not os.path.exists(ALLOWED_COMMANDS_FILE):
+        return list(AVAILABLE_COMMANDS)
+    try:
+        with open(ALLOWED_COMMANDS_FILE, encoding="utf-8") as f:
+            cmds = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        return cmds if cmds else list(AVAILABLE_COMMANDS)
+    except Exception:
+        return list(AVAILABLE_COMMANDS)
+
+
+@app.route("/api/allowed_commands", methods=["GET"])
+def get_allowed_commands():
+    enabled = _read_allowed_commands()
+    return jsonify({"enabled": enabled, "available": AVAILABLE_COMMANDS})
+
+
+@app.route("/api/allowed_commands", methods=["POST"])
+def post_allowed_commands():
+    data    = request.get_json(silent=True) or {}
+    action  = data.get("action", "")
+    command = data.get("command", "").strip().lower()
+    if not command:
+        return jsonify({"error": "missing command"}), 400
+    enabled = set(_read_allowed_commands())
+    if action == "add":
+        enabled.add(command)
+    elif action == "remove":
+        enabled.discard(command)
+    else:
+        return jsonify({"error": "action must be add or remove"}), 400
+    try:
+        with open(ALLOWED_COMMANDS_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(enabled)) + "\n")
+        return jsonify({"ok": True, "enabled": sorted(enabled)})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
