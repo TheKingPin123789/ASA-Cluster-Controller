@@ -1206,6 +1206,7 @@ h1 { font-size:18px; font-weight:700; color:#93c5fd; margin-bottom:0; }
 .page-wrap { max-width:960px; width:100%; margin:0 auto; display:flex; flex-direction:column; flex:1; }
 .grid2  { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .grid3  { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+.stack  { display:flex; flex-direction:column; max-width:520px; }
 @media (max-width:800px) { .grid3 { grid-template-columns:1fr 1fr; } }
 @media (max-width:600px) { .grid2, .grid3 { grid-template-columns:1fr; } }
 .field  { margin-bottom:8px; }
@@ -1330,6 +1331,7 @@ function render(data) {
     const wrap = document.createElement('div');
     if (g.grid3) wrap.className = 'grid3';
     else if (g.grid) wrap.className = 'grid2';
+    else wrap.className = 'stack';
     for (const f of g.fields) {
       const val = esc((data[f.s] || {})[f.k] || '');
       const d = document.createElement('div');
