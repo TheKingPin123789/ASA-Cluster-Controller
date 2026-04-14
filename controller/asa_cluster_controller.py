@@ -1564,6 +1564,24 @@ def _save_running_maps() -> None:
         log(f"Failed to save running maps: {exc}")
 
 
+def adopt_running_servers() -> None:
+    """On controller startup, probe every configured server via RCON.
+    Any that already respond are adopted as running so we never spawn a
+    duplicate process on the same port."""
+    now = time.time()
+    for state in SERVER_STATES.values():
+        try:
+            rcon_command(state.cfg, "ListPlayers", timeout=4.0)
+            # RCON replied — server is already up
+            state.is_running  = True
+            state.is_starting = False
+            state.last_seen_online_at = now
+            state.online_since        = now
+            log(f"ADOPTED: {state.cfg.key} already running — skipping start")
+        except Exception:
+            pass   # not running or not reachable yet — that's fine
+
+
 def restore_maps_after_restart() -> None:
     """Read the saved map list and start those servers again.
     Called once at startup; no-op if the file does not exist."""
@@ -1610,6 +1628,7 @@ def main() -> int:
     check_and_update_on_startup()
 
     log("Controller started")
+    adopt_running_servers()
     restore_maps_after_restart()
 
     while True:
