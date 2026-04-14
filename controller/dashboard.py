@@ -101,8 +101,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 .pl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
 
 /* Whitelist panel */
-#wl-panel { display: none; margin-top: 6px; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
-#wl-panel.open { display: flex; }
+#wl-panel { display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
 .wl-entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 6px; }
 .wl-info  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .wl-name  { font-size: 11px; color: #dde1e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -229,15 +228,12 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 
       <!-- Whitelisted players -->
       <div class="sec">
-        <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; margin-bottom:4px;" onclick="toggleWlPanel()">
-          <div class="sec-title" style="margin-bottom:0;">Whitelisted Players</div>
-          <span id="wl-chevron" style="font-size:10px; color:#4b5563;">▶ show</span>
-        </div>
-        <div id="wl-panel"></div>
-        <div style="display:flex; gap:5px; margin-top:6px;">
+        <div class="sec-title">Whitelisted Players</div>
+        <div style="display:flex; gap:5px; margin-bottom:6px;">
           <input type="text" id="wl-add-input" placeholder="Steam ID to add..." style="flex:1;">
           <button class="btn btn-green btn-sm" onclick="addWlPlayer()">Add</button>
         </div>
+        <div id="wl-panel"></div>
       </div>
     </div>
 
@@ -461,19 +457,9 @@ function escHtml(s) {
 function toggleWhitelist() { cmd(whitelistActive ? 'whitelist off' : 'whitelist on'); }
 
 // ── Whitelist panel ───────────────────────────────────────────────────────────
-let wlPanelOpen = false;
 let apPanelOpen = false;
 let _onlinePlayerNames = {};   // id -> name, refreshed each status poll
 let _playerModalCache  = {};   // id -> {name,id,map,mapKey,isOnline,last_seen}
-
-function toggleWlPanel() {
-  wlPanelOpen = !wlPanelOpen;
-  const panel   = document.getElementById('wl-panel');
-  const chevron = document.getElementById('wl-chevron');
-  panel.classList.toggle('open', wlPanelOpen);
-  chevron.textContent = wlPanelOpen ? '▼ hide' : '▶ show';
-  if (wlPanelOpen) loadWlPanel();
-}
 
 async function loadWlPanel() {
   try {
