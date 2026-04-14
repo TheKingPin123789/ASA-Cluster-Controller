@@ -28,6 +28,7 @@ STOP_FILE = os.path.join(BASE_DIR, "controller.stop")
 RESTART_MAPS_FILE = os.path.join(BASE_DIR, "restart_maps.txt")
 WHITELIST_FILE = os.path.join(BASE_DIR, "whitelist.txt")
 WHITELIST_DISABLED_FLAG = os.path.join(BASE_DIR, "whitelist_disabled.flag")
+SEEN_PLAYERS_FILE = os.path.join(BASE_DIR, "seen_players.json")
 
 # ── Load config (wizard runs here if needed) ──────────────
 _cfg = prompt_setup_on_startup()
@@ -1021,6 +1022,8 @@ def update_running_status(state: ServerState) -> None:
         state.last_seen_online_at = now
         state.player_list = parse_list_players_detailed(raw_players or "")
         state.player_count = len(state.player_list)
+        if state.player_list:
+            _update_seen_players(state)
 
         # On first contact only: replay the game log to recover who is
         # currently online. This handles controller restarts while players
@@ -1616,6 +1619,53 @@ def _write_stop_file() -> None:
         pass
 
 
+# ── Seen-players tracking ──────────────────────────────────────────────────────
+_seen_players: Dict[str, dict] = {}   # steam_id -> {name, last_map, last_seen}
+_seen_players_last_save: float = 0.0
+
+
+def _load_seen_players() -> None:
+    global _seen_players
+    if not os.path.exists(SEEN_PLAYERS_FILE):
+        return
+    try:
+        with open(SEEN_PLAYERS_FILE, encoding="utf-8") as f:
+            _seen_players = json.load(f)
+    except Exception:
+        _seen_players = {}
+
+
+def _update_seen_players(state: ServerState) -> None:
+    """Record each currently online player's name, map, and last-seen time."""
+    now = time.time()
+    for p in state.player_list:
+        pid = p.get("id", "").strip()
+        if not pid:
+            continue
+        _seen_players[pid] = {
+            "name":      p.get("name", _seen_players.get(pid, {}).get("name", "Unknown")),
+            "last_map":  state.cfg.key,
+            "last_seen": now,
+        }
+
+
+def _save_seen_players() -> None:
+    global _seen_players_last_save
+    if not _seen_players:
+        return
+    now = time.time()
+    if now - _seen_players_last_save < 60:   # write at most once per minute
+        return
+    try:
+        tmp = SEEN_PLAYERS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_seen_players, f, indent=2)
+        os.replace(tmp, SEEN_PLAYERS_FILE)
+        _seen_players_last_save = now
+    except Exception as exc:
+        log(f"Failed to save seen players: {exc}")
+
+
 def main() -> int:
     global SHOULD_EXIT
 
@@ -1627,6 +1677,7 @@ def main() -> int:
 
     check_and_update_on_startup()
 
+    _load_seen_players()
     log("Controller started")
     adopt_running_servers()
     restore_maps_after_restart()
@@ -1650,6 +1701,7 @@ def main() -> int:
             ensure_default_server()
             write_cluster_status()
             _save_running_maps()
+            _save_seen_players()
             print_summary()
 
             time.sleep(POLL_SECONDS)

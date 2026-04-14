@@ -12,3 +12,4 @@ controller.stop
 __pycache__/
 *.pyc
 .claude/
+seen_players.json

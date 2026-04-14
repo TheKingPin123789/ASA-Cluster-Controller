@@ -10,7 +10,8 @@ LOG_FILE        = os.path.join(BASE_DIR, "controller.log")
 ADMIN_LOG_FILE  = os.path.join(BASE_DIR, "admin_log.txt")
 ADMIN_CMD       = os.path.join(BASE_DIR, "admin_commands.txt")
 CONFIG_FILE     = os.path.join(BASE_DIR, "config.ini")
-WHITELIST_FILE  = os.path.join(BASE_DIR, "whitelist.txt")
+WHITELIST_FILE      = os.path.join(BASE_DIR, "whitelist.txt")
+SEEN_PLAYERS_FILE   = os.path.join(BASE_DIR, "seen_players.json")
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -119,6 +120,17 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 #log { flex: 1; background: #0a0a12; border: 1px solid #2a3050; border-radius: 4px; padding: 8px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12px; color: #a3e635; white-space: pre-wrap; word-break: break-all; }
 .log-header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 4px; flex-shrink: 0; }
 
+/* All players panel */
+#ap-panel { display: none; margin-top: 6px; flex-direction: column; gap: 3px; max-height: 250px; overflow-y: auto; }
+#ap-panel.open { display: flex; }
+.ap-entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 6px; cursor: pointer; }
+.ap-entry:hover { border-color: #3b4a7a; }
+.ap-dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.ap-dot.online  { background: #4ade80; }
+.ap-dot.offline { background: #374151; }
+.ap-name { font-size: 12px; color: #dde1e7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-map  { font-size: 10px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
+
 /* Player modal */
 #player-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:1000; align-items:center; justify-content:center; }
 #player-modal.open { display:flex; }
@@ -198,6 +210,14 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
         <div id="wl-panel"></div>
       </div>
 
+      <div class="sec">
+        <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;" onclick="toggleApPanel()">
+          <div class="sec-title" style="margin-bottom:0;">All Players</div>
+          <span id="ap-chevron" style="font-size:10px; color:#4b5563;">▶ show</span>
+        </div>
+        <div id="ap-panel"></div>
+      </div>
+
     </div>
 
     <!-- Settings tab -->
@@ -257,9 +277,13 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 <div id="player-modal" onclick="if(event.target===this)closePlayerModal()">
   <div id="player-modal-box">
     <span class="pm-close" onclick="closePlayerModal()">✕</span>
-    <div class="pm-title" id="pm-name"></div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span id="pm-status-dot" class="ap-dot"></span>
+      <div class="pm-title" id="pm-name"></div>
+    </div>
     <div class="pm-row"><div class="pm-label">Steam ID</div><div class="pm-value mono" id="pm-id"></div></div>
-    <div class="pm-row"><div class="pm-label">Server</div><div class="pm-value" id="pm-map"></div></div>
+    <div class="pm-row"><div class="pm-label">Map</div><div class="pm-value" id="pm-map"></div></div>
+    <div class="pm-row"><div class="pm-label">Last Seen</div><div class="pm-value" id="pm-last-seen"></div></div>
     <div class="pm-row"><div class="pm-label">Whitelist</div><div class="pm-value" id="pm-wl"></div></div>
     <div class="pm-actions" id="pm-actions"></div>
   </div>
@@ -347,7 +371,9 @@ function toggleWhitelist() { cmd(whitelistActive ? 'whitelist off' : 'whitelist 
 
 // ── Whitelist panel ───────────────────────────────────────────────────────────
 let wlPanelOpen = false;
+let apPanelOpen = false;
 let _onlinePlayerNames = {};   // id -> name, refreshed each status poll
+let _playerModalCache  = {};   // id -> {name,id,map,mapKey,isOnline,last_seen}
 
 function toggleWlPanel() {
   wlPanelOpen = !wlPanelOpen;
@@ -393,25 +419,73 @@ function wlRemove(id) {
   setTimeout(loadWlPanel, 600);
 }
 
-// ── Player list ───────────────────────────────────────────────────────────────
-let _onlinePlayers = [];   // full player objects {name,id,map,mapKey}
+// ── All Players panel ─────────────────────────────────────────────────────────
+function toggleApPanel() {
+  apPanelOpen = !apPanelOpen;
+  const panel   = document.getElementById('ap-panel');
+  const chevron = document.getElementById('ap-chevron');
+  panel.classList.toggle('open', apPanelOpen);
+  chevron.textContent = apPanelOpen ? '▼ hide' : '▶ show';
+  if (apPanelOpen) loadApPanel();
+}
 
+async function loadApPanel() {
+  try {
+    const r = await fetch('/api/seen_players');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderApPanel(data.players || {});
+  } catch(e) {}
+}
+
+function renderApPanel(players) {
+  const el = document.getElementById('ap-panel');
+  const entries = Object.entries(players);
+  if (!entries.length) {
+    el.innerHTML = '<span class="wl-empty">No players recorded yet</span>';
+    return;
+  }
+  entries.sort((a, b) => (b[1].last_seen || 0) - (a[1].last_seen || 0));
+  el.innerHTML = entries.map(([id, p]) => {
+    const isOnline = !!_onlinePlayerNames[id];
+    const mapDisplay = p.last_map ? (MAP_DISPLAY[p.last_map] || p.last_map) : '—';
+    _playerModalCache[id] = {
+      name: p.name || id, id,
+      map: isOnline ? mapDisplay : mapDisplay,
+      mapKey: p.last_map, isOnline,
+      last_seen: p.last_seen,
+    };
+    return `<div class="ap-entry" data-pid="${escHtml(id)}" onclick="openPlayerModal(this.dataset.pid)">
+      <span class="ap-dot ${isOnline ? 'online' : 'offline'}"></span>
+      <span class="ap-name" title="${escHtml(p.name || id)}">${escHtml(p.name || id)}</span>
+      <span class="ap-map">${escHtml(mapDisplay)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Player list ───────────────────────────────────────────────────────────────
 function renderPlayerList(data) {
   const el = document.getElementById('player-list');
-  _onlinePlayers = [];
+  // Clear online flags before re-marking current online set
+  for (const k in _playerModalCache) _playerModalCache[k].isOnline = false;
   _onlinePlayerNames = {};
   for (const [key, s] of Object.entries(data.servers || {})) {
     for (const p of (s.player_list || [])) {
-      _onlinePlayers.push({ name: p.name, id: p.id, map: MAP_DISPLAY[key] || key, mapKey: key });
       _onlinePlayerNames[p.id] = p.name;
+      _playerModalCache[p.id] = {
+        name: p.name, id: p.id,
+        map: MAP_DISPLAY[key] || key, mapKey: key,
+        isOnline: true, last_seen: Date.now() / 1000,
+      };
     }
   }
-  if (!_onlinePlayers.length) {
+  const online = Object.values(_playerModalCache).filter(p => p.isOnline);
+  if (!online.length) {
     el.innerHTML = '<span class="pl-empty">No players online</span>';
     return;
   }
-  el.innerHTML = _onlinePlayers.map((p, i) =>
-    `<div class="pl-entry" style="cursor:pointer;" onclick="openPlayerModal(${i})" title="Click for details">
+  el.innerHTML = online.map(p =>
+    `<div class="pl-entry" style="cursor:pointer;" data-pid="${escHtml(p.id)}" onclick="openPlayerModal(this.dataset.pid)" title="Click for details">
        <div class="pl-info">
          <span class="pl-name">${escHtml(p.name)}</span>
          <span class="pl-id">${escHtml(p.id)}</span>
@@ -422,35 +496,57 @@ function renderPlayerList(data) {
 }
 
 // ── Player modal ──────────────────────────────────────────────────────────────
-function openPlayerModal(idx) {
-  const p = _onlinePlayers[idx];
+function fmtAgo(ts) {
+  if (!ts) return '—';
+  const secs = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (secs < 60)   return 'Just now';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
+async function openPlayerModal(id) {
+  const p = _playerModalCache[id];
   if (!p) return;
+
+  // Mark all cached entries as offline first; re-mark online ones
+  for (const k in _playerModalCache) _playerModalCache[k].isOnline = !!_onlinePlayerNames[k];
+
+  const isOnline = !!_onlinePlayerNames[id];
+  const dot = document.getElementById('pm-status-dot');
+  dot.className = 'ap-dot ' + (isOnline ? 'online' : 'offline');
+
   document.getElementById('pm-name').textContent = p.name;
   document.getElementById('pm-id').textContent   = p.id;
-  document.getElementById('pm-map').textContent  = p.map;
+  document.getElementById('pm-map').textContent  =
+    isOnline ? p.map : (p.map ? 'Last seen: ' + p.map : '—');
+  document.getElementById('pm-last-seen').textContent =
+    isOnline ? 'Currently online' : fmtAgo(p.last_seen);
 
-  // Check whitelist status from the wl panel if it's been loaded
-  const wlEl = document.getElementById('wl-panel');
-  const wlIds = Array.from(wlEl.querySelectorAll('.wl-id')).map(e => e.textContent.trim());
-  const onWl  = wlIds.includes(p.id);
-  document.getElementById('pm-wl').innerHTML =
-    onWl ? '<span style="color:#4ade80">✔ Whitelisted</span>'
-         : '<span style="color:#6b7280">Not whitelisted</span>';
+  // Fetch whitelist status fresh
+  let onWl = false;
+  try {
+    const r = await fetch('/api/whitelist');
+    const wlData = await r.json();
+    onWl = (wlData.entries || []).includes(id);
+  } catch(e) {}
 
-  const safeId = escHtml(p.id);
-  document.getElementById('pm-actions').innerHTML = `
-    <button class="btn btn-green btn-sm" onclick="cmd('whitelist add ${safeId}'); refreshPmWl('${safeId}', true)">+WL Add</button>
-    <button class="btn btn-red   btn-sm" onclick="cmd('whitelist remove ${safeId}'); refreshPmWl('${safeId}', false)">−WL Remove</button>
-  `;
-
+  renderPmWl(id, onWl);
   document.getElementById('player-modal').classList.add('open');
 }
 
-function refreshPmWl(id, added) {
-  document.getElementById('pm-wl').innerHTML = added
+function renderPmWl(id, onWl) {
+  document.getElementById('pm-wl').innerHTML = onWl
     ? '<span style="color:#4ade80">✔ Whitelisted</span>'
     : '<span style="color:#6b7280">Not whitelisted</span>';
-  setTimeout(loadWlPanel, 600);
+
+  const safeId = escHtml(id);
+  document.getElementById('pm-actions').innerHTML = `
+    <button class="btn btn-green btn-sm" ${onWl  ? 'disabled' : ''}
+            onclick="cmd('whitelist add ${safeId}'); renderPmWl('${safeId}', true); setTimeout(loadWlPanel,600)">+WL Add</button>
+    <button class="btn btn-red btn-sm"   ${!onWl ? 'disabled' : ''}
+            onclick="cmd('whitelist remove ${safeId}'); renderPmWl('${safeId}', false); setTimeout(loadWlPanel,600)">−WL Remove</button>
+  `;
 }
 
 function closePlayerModal() {
@@ -804,6 +900,17 @@ def post_settings():
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/seen_players")
+def get_seen_players():
+    try:
+        if not os.path.exists(SEEN_PLAYERS_FILE):
+            return jsonify({"players": {}})
+        with open(SEEN_PLAYERS_FILE, encoding="utf-8") as f:
+            return jsonify({"players": json.load(f)})
+    except Exception as exc:
+        return jsonify({"players": {}, "error": str(exc)})
 
 
 @app.route("/api/defaults")
