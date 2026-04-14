@@ -16,3 +16,6 @@ seen_players.json
 allowed_commands.txt
 command_categories.json
 admin_list.txt
+SteamCMD/
+asa_server/
+backups/
