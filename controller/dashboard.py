@@ -25,15 +25,16 @@ HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cluster Dashboard</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif; font-size: 14px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif; font-size: 16px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Header */
 #header { background: #1a1f36; padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a3050; flex-shrink: 0; }
-#header .title { font-weight: 700; font-size: 16px; color: #93c5fd; }
-#status-line { font-size: 12px; color: #6b7280; }
+#header .title { font-weight: 700; font-size: 18px; color: #93c5fd; }
+#status-line { font-size: 14px; color: #6b7280; }
 
 /* Server cards */
 #cards { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2a3050; flex-shrink: 0; }
@@ -42,28 +43,28 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .card.starting { border-color: #d97706; }
 .card.offline  { opacity: .55; }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.card-name { font-weight: 600; font-size: 12px; }
-.badge { padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+.card-name { font-weight: 600; font-size: 14px; }
+.badge { padding: 2px 6px; border-radius: 3px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
 .badge.online   { background: #14532d; color: #4ade80; }
 .badge.starting { background: #78350f; color: #fbbf24; }
 .badge.offline  { background: #1f2937; color: #6b7280; }
-.card-players { font-size: 11px; color: #6b7280; margin-bottom: 6px; min-height: 14px; }
+.card-players { font-size: 13px; color: #6b7280; margin-bottom: 6px; min-height: 14px; }
 .card-btns { display: flex; gap: 4px; }
 
 /* Main layout */
 #main { display: flex; flex: 1; overflow: hidden; gap: 8px; padding: 8px 12px; }
-#left  { width: 290px; min-width: 290px; display: flex; flex-direction: column; overflow: hidden; }
+#left  { width: clamp(280px, 28%, 360px); min-width: 280px; display: flex; flex-direction: column; overflow: hidden; }
 #right { flex: 1; display: flex; flex-direction: column; overflow: hidden; gap: 8px; }
 
 /* Tabs */
 .tab-bar { display: flex; gap: 2px; flex-shrink: 0; }
-.tab-btn { padding: 5px 8px; flex: 1; text-align: center; background: #1a1f36; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 12px; color: #9ca3af; }
+.tab-btn { padding: 6px 10px; flex: 1; text-align: center; background: #1a1f36; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 14px; color: #9ca3af; }
 .tab-btn.active { background: #222840; color: #fff; border-color: #3b4a7a; }
 .tab-panel { display: none; flex: 1; background: #222840; border: 1px solid #3b4a7a; border-radius: 0 4px 4px 4px; padding: 10px; overflow-y: auto; flex-direction: column; gap: 8px; }
 .tab-panel.active { display: flex; }
 
 /* Buttons */
-.btn { padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity .15s; }
+.btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; transition: opacity .15s; }
 .btn:disabled { opacity: .35; cursor: not-allowed; }
 .btn:not(:disabled):hover { opacity: .85; }
 .btn-green  { background: #166534; color: #4ade80; }
@@ -75,50 +76,50 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .btn-bright-red    { background: #dc2626; color: #ffffff; }
 .btn-bright-orange { background: #ea580c; color: #ffffff; }
 .btn-full { width: 100%; }
-.btn-sm { padding: 3px 7px; font-size: 11px; }
+.btn-sm { padding: 4px 8px; font-size: 13px; }
 
 /* Section dividers */
 .sec { border-top: 1px solid #3b4a7a; padding-top: 8px; }
-.sec-title { font-size: 10px; color: #4b5563; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+.sec-title { font-size: 12px; color: #4b5563; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .row   { display: flex; gap: 5px; align-items: flex-end; }
 
 /* Form controls */
 input[type=text], select, textarea {
   background: #131825; border: 1px solid #2a3050; color: #dde1e7;
-  padding: 5px 8px; border-radius: 4px; font-size: 12px; width: 100%;
+  padding: 6px 10px; border-radius: 4px; font-size: 14px; width: 100%;
   font-family: inherit;
 }
 select { cursor: pointer; }
-label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
+label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 /* Player list */
 #player-list { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
 .pl-entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 5px; }
 .pl-info  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.pl-name  { font-size: 12px; color: #dde1e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-id    { font-family: Consolas, monospace; font-size: 10px; color: #4b5563; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-map   { font-size: 10px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
-.pl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
+.pl-name  { font-size: 14px; color: #dde1e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-id    { font-family: Consolas, monospace; font-size: 12px; color: #4b5563; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-map   { font-size: 12px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
+.pl-empty { font-size: 13px; color: #4b5563; font-style: italic; padding: 4px 2px; }
 
 /* Whitelist panel */
 #wl-panel { display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
 .wl-entry { display: flex; align-items: center; background: #131825; border: 1px solid #2a3050; border-radius: 3px; padding: 3px 7px; gap: 6px; }
 .wl-info  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.wl-name  { font-size: 11px; color: #dde1e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wl-id    { font-family: Consolas, monospace; font-size: 10px; color: #a3e635; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wl-empty { font-size: 11px; color: #4b5563; font-style: italic; padding: 4px 2px; }
+.wl-name  { font-size: 13px; color: #dde1e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-id    { font-family: Consolas, monospace; font-size: 12px; color: #a3e635; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-empty { font-size: 13px; color: #4b5563; font-style: italic; padding: 4px 2px; }
 
 /* Right panel: tabbed console / log */
 #right-tab-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #222840; border: 1px solid #3b4a7a; border-radius: 0 4px 4px 4px; }
 #console-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 8px; }
-#console-out  { flex: 1; background: #0a0a12; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; padding: 6px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12px; color: #93c5fd; white-space: pre-wrap; word-break: break-all; }
+#console-out  { flex: 1; background: #0a0a12; border: 1px solid #2a3050; border-bottom: none; border-radius: 4px 4px 0 0; padding: 6px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 14px; color: #93c5fd; white-space: pre-wrap; word-break: break-all; }
 #console-input-bar { display: flex; gap: 5px; background: #131825; border: 1px solid #2a3050; border-radius: 0 0 4px 4px; padding: 5px 7px; flex-shrink: 0; }
-#console-input-bar input { flex: 1; background: transparent; border: none; outline: none; color: #dde1e7; font-size: 12px; font-family: Consolas, monospace; }
+#console-input-bar input { flex: 1; background: transparent; border: none; outline: none; color: #dde1e7; font-size: 14px; font-family: Consolas, monospace; }
 #console-input-bar input::placeholder { color: #4b5563; }
 .quick-cmds { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; flex-shrink: 0; }
 #log-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 8px; }
-#log { flex: 1; background: #0a0a12; border: 1px solid #2a3050; border-radius: 4px; padding: 8px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12px; color: #a3e635; white-space: pre-wrap; word-break: break-all; }
+#log { flex: 1; background: #0a0a12; border: 1px solid #2a3050; border-radius: 4px; padding: 8px 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 14px; color: #a3e635; white-space: pre-wrap; word-break: break-all; }
 .log-header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 4px; flex-shrink: 0; }
 
 /* All players panel */
@@ -129,25 +130,34 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
 .ap-dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .ap-dot.online  { background: #4ade80; }
 .ap-dot.offline { background: #374151; }
-.ap-name { font-size: 12px; color: #dde1e7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ap-map  { font-size: 10px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
+.ap-name { font-size: 14px; color: #dde1e7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-map  { font-size: 12px; color: #6b7280; white-space: nowrap; flex-shrink: 0; }
 
 /* Player modal */
 #player-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:1000; align-items:center; justify-content:center; }
 #player-modal.open { display:flex; }
 #player-modal-box { background:#1a1f36; border:1px solid #3b4a7a; border-radius:8px; padding:20px 22px; min-width:340px; max-width:420px; width:90%; display:flex; flex-direction:column; gap:12px; }
-.pm-title { font-size:15px; font-weight:700; color:#93c5fd; }
+.pm-title { font-size:17px; font-weight:700; color:#93c5fd; }
 .pm-row { display:flex; flex-direction:column; gap:2px; }
-.pm-label { font-size:10px; color:#4b5563; text-transform:uppercase; letter-spacing:.06em; }
-.pm-value { font-size:13px; color:#dde1e7; word-break:break-all; }
-.pm-value.mono { font-family:Consolas,monospace; font-size:12px; color:#a3e635; }
+.pm-label { font-size:12px; color:#4b5563; text-transform:uppercase; letter-spacing:.06em; }
+.pm-value { font-size:15px; color:#dde1e7; word-break:break-all; }
+.pm-value.mono { font-family:Consolas,monospace; font-size:14px; color:#a3e635; }
 .pm-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
-.pm-close { align-self:flex-end; cursor:pointer; font-size:18px; color:#4b5563; line-height:1; margin-top:-8px; }
+.pm-close { align-self:flex-end; cursor:pointer; font-size:20px; color:#4b5563; line-height:1; margin-top:-8px; }
 
-/* Settings form */
-.settings-section { margin-top: 6px; }
-.settings-section .sec-title { margin-bottom: 4px; }
+/* Settings window */
+.settings-section { margin-top: 10px; }
+.settings-section .sec-title { margin-bottom: 6px; padding-bottom:3px; border-bottom:1px solid #2a3050; }
 .settings-row { margin-bottom: 5px; }
+.settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+
+/* Responsive layout */
+@media (max-width: 720px) {
+  #main { flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+  #left { width: 100% !important; min-width: 0 !important; max-height: 55vh; }
+  #right { min-height: 300px; }
+  #cards .card { flex: 1 1 120px; }
+}
 </style>
 </head>
 <body>
@@ -157,7 +167,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
   <div style="display:flex; align-items:center; gap:12px;">
     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
       <span id="status-line">Connecting...</span>
-      <span id="restart-timer" style="font-size:12px; font-family:Consolas,monospace;"></span>
+      <span id="restart-timer" style="font-size:14px; font-family:Consolas,monospace;"></span>
     </div>
     <button onclick="openSettings()" title="Settings"
             style="background:none; border:none; cursor:pointer; font-size:20px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px;"
@@ -205,7 +215,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
       <div class="sec">
         <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;" onclick="toggleApPanel()">
           <div class="sec-title" style="margin-bottom:0;">All Players</div>
-          <span id="ap-chevron" style="font-size:10px; color:#4b5563;">▶ show</span>
+          <span id="ap-chevron" style="font-size:12px; color:#4b5563;">▶ show</span>
         </div>
         <div id="ap-panel"></div>
       </div>
@@ -215,7 +225,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
     <div id="tab-whitelist" class="tab-panel">
       <!-- !start whitelist toggle -->
       <div style="display:flex; align-items:center; justify-content:space-between; padding:4px 0 8px;">
-        <span style="font-size:12px; color:#9ca3af;">Require whitelist for !start</span>
+        <span style="font-size:14px; color:#9ca3af;">Require whitelist for !start</span>
         <button id="btn-wl" class="btn btn-gray btn-sm" onclick="toggleWhitelist()">...</button>
       </div>
 
@@ -281,7 +291,7 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
         <div id="console-wrap">
           <div id="console-out"></div>
           <div id="console-input-bar">
-            <span style="color:#4b5563; font-size:12px; font-family:Consolas;">$</span>
+            <span style="color:#4b5563; font-size:14px; font-family:Consolas;">$</span>
             <input id="cmd-input" type="text" placeholder="e.g. start ragnarok"
                    onkeydown="if(event.key==='Enter')sendConsole()">
             <button class="btn btn-blue btn-sm" onclick="sendConsole()">Send</button>
@@ -296,34 +306,17 @@ label { font-size: 11px; color: #6b7280; display: block; margin-bottom: 3px; }
       <div id="right-log" style="flex:1; display:none; flex-direction:column; overflow:hidden;">
         <div id="log-wrap">
           <div class="log-header">
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:11px; color:#4b5563;">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:13px; color:#4b5563;">
               <input type="checkbox" id="auto-scroll" checked onchange="autoScroll=this.checked">
               Auto-scroll
             </label>
           </div>
           <div id="log"></div>
+
         </div>
       </div>
 
     </div>
-  </div>
-</div>
-
-<!-- Settings modal -->
-<div id="settings-modal" onclick="if(event.target===this)closeSettings()"
-     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:1000; align-items:center; justify-content:center;">
-  <div style="background:#1a1f36; border:1px solid #3b4a7a; border-radius:8px; padding:20px 22px;
-              width:480px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; gap:10px;">
-    <div style="display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
-      <span style="font-size:15px; font-weight:700; color:#93c5fd;">Settings</span>
-      <span onclick="closeSettings()" style="cursor:pointer; font-size:18px; color:#4b5563; line-height:1;">✕</span>
-    </div>
-    <div id="setup-notice" style="display:none; background:#78350f; color:#fdba74; padding:7px 9px; border-radius:4px; font-size:12px; flex-shrink:0;">
-      No config.ini found — defaults loaded. Fill in your values and click Save to create it.
-    </div>
-    <div style="font-size:11px; color:#4b5563; flex-shrink:0;">Changes require a controller restart.</div>
-    <div id="settings-form" style="flex:1; overflow-y:auto;"></div>
-    <button class="btn btn-blue btn-full" style="flex-shrink:0;" onclick="saveSettings()">Save Settings</button>
   </div>
 </div>
 
@@ -371,13 +364,9 @@ function switchTab(name) {
   if (name === 'whitelist') loadWlTab();
 }
 
-// ── Settings modal ────────────────────────────────────────────────────────────
+// ── Settings ──────────────────────────────────────────────────────────────────
 function openSettings() {
-  document.getElementById('settings-modal').style.display = 'flex';
-  loadSettings();
-}
-function closeSettings() {
-  document.getElementById('settings-modal').style.display = 'none';
+  window.location.href = '/settings';
 }
 
 // ── Whitelist tab ─────────────────────────────────────────────────────────────
@@ -917,63 +906,7 @@ async function pollAdminLogs() {
   } catch(e) {}
 }
 
-// ── Settings ─────────────────────────────────────────────────────────────────
-async function loadSettings() {
-  try {
-    const r = await fetch('/api/settings');
-    let data = await r.json();
-    const notice = document.getElementById('setup-notice');
-    const isEmpty = Object.keys(data).length === 0;
-    if (isEmpty) {
-      const dr = await fetch('/api/defaults');
-      data = await dr.json();
-      if (notice) notice.style.display = 'block';
-    } else {
-      if (notice) notice.style.display = 'none';
-    }
-    renderSettingsForm(data);
-  } catch(e) {}
-}
 
-function renderSettingsForm(data) {
-  const form = document.getElementById('settings-form');
-  form.innerHTML = '';
-  for (const [section, kvs] of Object.entries(data)) {
-    const div = document.createElement('div');
-    div.className = 'settings-section';
-    div.innerHTML = '<div class="sec-title">[' + section + ']</div>';
-    for (const [k, v] of Object.entries(kvs)) {
-      const row = document.createElement('div');
-      row.className = 'settings-row';
-      row.innerHTML = `<label>${k}</label><input type="text" data-section="${section}" data-key="${k}" value="${String(v).replace(/"/g,'&quot;')}">`;
-      div.appendChild(row);
-    }
-    form.appendChild(div);
-  }
-}
-
-async function saveSettings() {
-  const payload = {};
-  document.querySelectorAll('#settings-form input').forEach(inp => {
-    const s = inp.dataset.section, k = inp.dataset.key;
-    if (!payload[s]) payload[s] = {};
-    payload[s][k] = inp.value;
-  });
-  const r = await fetch('/api/settings', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
-  });
-  const notice = document.getElementById('setup-notice');
-  if (r.ok) {
-    if (notice) notice.style.display = 'none';
-    const btn = document.querySelector('#settings-modal .btn-blue');
-    const orig = btn.textContent;
-    btn.textContent = 'Saved!';
-    btn.classList.replace('btn-blue','btn-green');
-    setTimeout(() => { btn.textContent = orig; btn.classList.replace('btn-green','btn-blue'); }, 2000);
-  }
-}
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 pollStatus();
@@ -1231,6 +1164,188 @@ def get_defaults():
             "baby_imprint_amount_multiplier": "20.0",
         },
     })
+
+
+SETTINGS_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#0f0f1a; color:#dde1e7; font-family:'Segoe UI',sans-serif; font-size:16px; min-height:100vh; padding:16px; display:flex; flex-direction:column; }
+h1 { font-size:18px; font-weight:700; color:#93c5fd; margin-bottom:0; }
+.notice { background:#78350f; color:#fdba74; padding:8px 10px; border-radius:4px; font-size:14px; margin-bottom:10px; display:none; }
+.hint   { font-size:13px; color:#4b5563; margin-bottom:10px; }
+.tab-bar { display:flex; gap:2px; flex-wrap:wrap; flex-shrink:0; }
+.s-tab  { padding:7px 13px; background:#1a1f36; border:1px solid #2a3050; border-bottom:none;
+           border-radius:4px 4px 0 0; cursor:pointer; font-size:14px; color:#9ca3af; white-space:nowrap; }
+.s-tab.active { background:#222840; color:#fff; border-color:#3b4a7a; }
+.s-tab:hover:not(.active) { color:#dde1e7; }
+.tab-content { flex:1; background:#222840; border:1px solid #3b4a7a; border-radius:0 4px 4px 4px; padding:14px 16px; overflow-y:auto; }
+.group  { display:none; }
+.group.active { display:block; }
+.grid2  { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+@media (max-width:600px) { .grid2 { grid-template-columns:1fr; } }
+.field  { margin-bottom:8px; }
+.field.wide { grid-column:1 / -1; }
+label   { font-size:13px; color:#6b7280; display:block; margin-bottom:4px; }
+input   { width:100%; background:#131825; border:1px solid #2a3050; color:#dde1e7;
+          padding:6px 10px; border-radius:4px; font-size:14px; font-family:inherit; }
+input:focus { outline:none; border-color:#3b4a7a; }
+.footer { padding:12px 0 0; margin-top:10px; border-top:1px solid #2a3050; flex-shrink:0; }
+.btn    { padding:8px 16px; border:none; border-radius:4px; cursor:pointer; font-size:14px;
+          font-weight:600; width:100%; background:#1e3a5f; color:#93c5fd; transition:opacity .15s; }
+.btn:hover { opacity:.85; }
+.btn.saved { background:#14532d; color:#4ade80; }
+</style>
+</head>
+<body>
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+  <a href="/" style="color:#4b5563; font-size:22px; text-decoration:none; line-height:1;"
+     onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#4b5563'">←</a>
+  <h1>⚙ Settings</h1>
+</div>
+<div class="notice" id="notice">No config.ini found — defaults loaded. Fill in your values and save.</div>
+<div class="hint">Changes require a controller restart.</div>
+<div class="tab-bar" id="tab-bar"></div>
+<div class="tab-content">
+  <div id="form"></div>
+</div>
+<div class="footer"><button class="btn" id="save-btn" onclick="save()">Save Settings</button></div>
+<script>
+const SCHEMA = [
+  { group:'Cluster', fields:[
+    {s:'cluster',k:'cluster_name',  label:'Cluster Name'},
+    {s:'cluster',k:'rcon_password', label:'RCON Password'},
+    {s:'cluster',k:'default_map',   label:'Default Map'},
+    {s:'network', k:'rcon_host',    label:'RCON Host'},
+  ]},
+  { group:'Paths', fields:[
+    {s:'paths',k:'server_root',   label:'Server Root',   wide:true},
+    {s:'paths',k:'cluster_dir',   label:'Cluster Dir',   wide:true},
+    {s:'paths',k:'steamcmd_path', label:'SteamCMD Path', wide:true},
+  ]},
+  { group:'Performance', grid:true, fields:[
+    {s:'performance',k:'max_active_servers',label:'Max Active Servers'},
+    {s:'performance',k:'max_players',       label:'Max Players'},
+    {s:'timers',     k:'poll_seconds',      label:'Poll Interval (s)'},
+  ]},
+  { group:'Schedule & Backup', grid:true, fields:[
+    {s:'schedule',k:'restart_time',             label:'Daily Restart (HH:MM)'},
+    {s:'schedule',k:'check_updates_on_startup', label:'Check Updates on Start'},
+    {s:'backup',  k:'backup_dir',               label:'Backup Directory', wide:true},
+    {s:'backup',  k:'max_backups',              label:'Max Backups'},
+  ]},
+  { group:'Timers', grid:true, fields:[
+    {s:'timers',k:'map_shutdown_minutes',         label:'Empty Map Shutdown (min)'},
+    {s:'timers',k:'autosave_minutes',             label:'Autosave Interval (min)'},
+    {s:'timers',k:'cluster_shutdown_minutes',     label:'Cluster Shutdown Warn (min)'},
+    {s:'timers',k:'startup_grace_minutes',        label:'Startup Grace (min)'},
+    {s:'timers',k:'server_start_timeout_seconds', label:'Start Timeout (s)'},
+    {s:'timers',k:'save_before_exit_seconds',     label:'Save Before Exit (s)'},
+    {s:'timers',k:'post_shutdown_wait_seconds',   label:'Post-Shutdown Wait (s)'},
+    {s:'timers',k:'crash_detection_threshold',    label:'Crash Threshold'},
+  ]},
+  { group:'Game Rates', grid:true, fields:[
+    {s:'rates',k:'xp_multiplier',              label:'XP'},
+    {s:'rates',k:'taming_speed_multiplier',    label:'Taming Speed'},
+    {s:'rates',k:'harvest_amount_multiplier',  label:'Harvest Amount'},
+    {s:'rates',k:'difficulty_offset',          label:'Difficulty Offset'},
+    {s:'rates',k:'mating_interval_multiplier', label:'Mating Interval'},
+    {s:'rates',k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed'},
+  ]},
+  { group:'Breeding', grid:true, fields:[
+    {s:'breeding',k:'baby_mature_speed_multiplier',        label:'Mature Speed'},
+    {s:'breeding',k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval'},
+    {s:'breeding',k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period'},
+    {s:'breeding',k:'baby_imprint_amount_multiplier',      label:'Imprint Amount'},
+  ]},
+];
+
+let activeTab = 0;
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function buildTabBar() {
+  document.getElementById('tab-bar').innerHTML = SCHEMA.map((g, i) =>
+    `<div class="s-tab${i === activeTab ? ' active' : ''}" onclick="switchTab(${i})">${esc(g.group)}</div>`
+  ).join('');
+}
+
+function switchTab(idx) {
+  activeTab = idx;
+  document.querySelectorAll('#tab-bar .s-tab').forEach((b, i) => b.classList.toggle('active', i === idx));
+  document.querySelectorAll('#form .group').forEach((g, i) => g.classList.toggle('active', i === idx));
+}
+
+function render(data) {
+  const form = document.getElementById('form');
+  form.innerHTML = '';
+  SCHEMA.forEach((g, i) => {
+    const sec = document.createElement('div');
+    sec.className = 'group' + (i === activeTab ? ' active' : '');
+    const wrap = document.createElement('div');
+    if (g.grid) wrap.className = 'grid2';
+    for (const f of g.fields) {
+      const val = esc((data[f.s] || {})[f.k] || '');
+      const d = document.createElement('div');
+      d.className = 'field' + (f.wide ? ' wide' : '');
+      d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="${val}">`;
+      wrap.appendChild(d);
+    }
+    sec.appendChild(wrap);
+    form.appendChild(sec);
+  });
+}
+
+async function load() {
+  let data = {};
+  try {
+    const r = await fetch('/api/settings');
+    data = await r.json();
+    if (!Object.keys(data).length) {
+      const dr = await fetch('/api/defaults');
+      data = await dr.json();
+      document.getElementById('notice').style.display = 'block';
+    }
+  } catch(e) {}
+  buildTabBar();
+  render(data);
+}
+
+async function save() {
+  const payload = {};
+  document.querySelectorAll('#form input').forEach(i => {
+    const s = i.dataset.s, k = i.dataset.k;
+    if (!payload[s]) payload[s] = {};
+    payload[s][k] = i.value;
+  });
+  const r = await fetch('/api/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const btn = document.getElementById('save-btn');
+  if (r.ok) {
+    document.getElementById('notice').style.display = 'none';
+    btn.textContent = 'Saved!'; btn.className = 'btn saved';
+    setTimeout(() => { btn.textContent = 'Save Settings'; btn.className = 'btn'; }, 2000);
+  } else {
+    btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d';
+    setTimeout(() => { btn.textContent = 'Save Settings'; btn.style.background = ''; }, 2500);
+  }
+}
+
+load();
+</script>
+</body>
+</html>"""
+
+
+@app.route("/settings")
+def settings_page():
+    return SETTINGS_PAGE
 
 
 if __name__ == "__main__":
