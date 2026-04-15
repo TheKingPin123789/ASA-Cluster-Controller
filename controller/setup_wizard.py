@@ -466,28 +466,15 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
 
 def prompt_setup_on_startup() -> configparser.ConfigParser:
     """
-    Called at controller startup. Non-interactive.
-    If config.ini is missing, waits until it appears (created via the
-    dashboard Settings tab or by running setup_wizard.py directly).
+    Called at controller startup.
+    If config.ini is missing, runs the interactive setup wizard right here
+    in the CMD window.  If config.ini already exists, loads and returns it.
     Returns the active ConfigParser.
     """
     if not config_exists():
-        print()
-        print("=" * 52)
-        print("  No config.ini found.")
-        print("  Open the dashboard at http://localhost:5000")
-        print("  and use the Settings tab to create your config.")
-        print("  Or run setup_wizard.py for an interactive wizard.")
-        print("=" * 52)
-        print()
-        print("Waiting for config.ini to appear...")
-        while not config_exists():
-            time.sleep(3)
-        print("config.ini found — starting controller.")
-        print()
-
+        return run_wizard()
     return load_config()
 
 
 if __name__ == "__main__":
-    prompt_setup_on_startup()
+    run_wizard()
