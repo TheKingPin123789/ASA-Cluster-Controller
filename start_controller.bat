@@ -25,8 +25,11 @@ if not exist "controller\asa_cluster_controller.py" (
     xcopy /E /I /Y "%EXTRACT_DIR%\ASA-Cluster-Controller-main\scripts" "scripts\" >nul
     copy /Y "%EXTRACT_DIR%\ASA-Cluster-Controller-main\start_controller.bat" "%~dp0start_controller.bat" >nul
 
+    :: ── Clean up download artifacts (belt-and-suspenders) ──────────────────
     del "%DOWNLOAD_ZIP%" >nul 2>&1
-    rmdir /S /Q "%EXTRACT_DIR%" >nul 2>&1
+    if exist "%EXTRACT_DIR%" rmdir /S /Q "%EXTRACT_DIR%"
+    :: Also remove if the zip extracted directly into the root folder
+    if exist "%~dp0ASA-Cluster-Controller-main" rmdir /S /Q "%~dp0ASA-Cluster-Controller-main"
 
     echo Files downloaded successfully.
     echo.
