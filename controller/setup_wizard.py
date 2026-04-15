@@ -414,42 +414,107 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "cluster_dir": cluster_dir,
         "steamcmd_path": steamcmd_path,
     }
-    cfg["performance"] = {
-        "max_active_servers": str(max_active),
-        "max_players": str(max_players),
+    cfg["limits"] = {
+        "max_active_servers":      str(max_active),
+        "max_players":             str(max_players),
+        "max_tamed_dinos":         prev_get("limits", "max_tamed_dinos",         "5000"),
+        "max_personal_tamed_dinos":prev_get("limits", "max_personal_tamed_dinos","40"),
+    }
+    cfg["schedule"] = {
+        "poll_seconds":             str(poll_seconds),
+        "check_updates_on_startup": "true" if check_updates_on_startup else "false",
+        "restart_time":             restart_time,
     }
     cfg["timers"] = {
-        "poll_seconds": str(poll_seconds),
-        "map_shutdown_minutes": str(map_shutdown_minutes),
-        "startup_grace_minutes": str(startup_grace_minutes),
-        "autosave_minutes": str(autosave_minutes),
-        "cluster_shutdown_minutes": str(cluster_shutdown_minutes),
+        "map_shutdown_minutes":         str(map_shutdown_minutes),
+        "startup_grace_minutes":        str(startup_grace_minutes),
+        "autosave_minutes":             str(autosave_minutes),
+        "cluster_shutdown_minutes":     str(cluster_shutdown_minutes),
         "server_start_timeout_seconds": prev_get("timers", "server_start_timeout_seconds", "300"),
-        "save_before_exit_seconds": prev_get("timers", "save_before_exit_seconds", "10"),
-        "post_shutdown_wait_seconds": prev_get("timers", "post_shutdown_wait_seconds", "30"),
-        "crash_detection_threshold": prev_get("timers", "crash_detection_threshold", "5"),
+        "save_before_exit_seconds":     prev_get("timers", "save_before_exit_seconds",      "10"),
+        "post_shutdown_wait_seconds":   prev_get("timers", "post_shutdown_wait_seconds",     "30"),
+        "crash_detection_threshold":    prev_get("timers", "crash_detection_threshold",      "5"),
     }
     cfg["backup"] = {
-        "backup_dir":   backup_dir,
-        "max_backups":  str(max_backups),
+        "backup_dir":  backup_dir,
+        "max_backups": str(max_backups),
+    }
+    cfg["world"] = {
+        "day_time_speed_scale":                prev_get("world","day_time_speed_scale",               "1.0"),
+        "night_time_speed_scale":              prev_get("world","night_time_speed_scale",             "1.0"),
+        "dino_count_multiplier":               prev_get("world","dino_count_multiplier",              "1.0"),
+        "resources_respawn_period_multiplier": prev_get("world","resources_respawn_period_multiplier","1.0"),
+        "active_event":                        prev_get("world","active_event",                       ""),
+        "disable_weather_fog":                 prev_get("world","disable_weather_fog",                "false"),
+    }
+    cfg["rates"] = {
+        "xp_multiplier":                              xp_multiplier,
+        "taming_speed_multiplier":                    taming_speed_multiplier,
+        "harvest_amount_multiplier":                  harvest_amount_multiplier,
+        "difficulty_offset":                          difficulty_offset,
+        "item_stack_size_multiplier":                 prev_get("rates","item_stack_size_multiplier",                "1.0"),
+        "loot_quality_multiplier":                    prev_get("rates","loot_quality_multiplier",                   "1.0"),
+        "fishing_loot_quality_multiplier":            prev_get("rates","fishing_loot_quality_multiplier",           "1.0"),
+        "supply_crate_loot_quality_multiplier":       prev_get("rates","supply_crate_loot_quality_multiplier",      "1.0"),
+        "global_spoiling_time_multiplier":            prev_get("rates","global_spoiling_time_multiplier",           "1.0"),
+        "global_item_decomposition_time_multiplier":  prev_get("rates","global_item_decomposition_time_multiplier", "1.0"),
+        "global_corpse_decomposition_time_multiplier":prev_get("rates","global_corpse_decomposition_time_multiplier","1.0"),
+        "crop_growth_speed_multiplier":               prev_get("rates","crop_growth_speed_multiplier",              "1.0"),
+        "fuel_consumption_interval_multiplier":       prev_get("rates","fuel_consumption_interval_multiplier",      "1.0"),
+    }
+    cfg["survival"] = {
+        "player_food_drain_multiplier":       prev_get("survival","player_food_drain_multiplier",      "1.0"),
+        "player_water_drain_multiplier":      prev_get("survival","player_water_drain_multiplier",     "1.0"),
+        "player_stamina_drain_multiplier":    prev_get("survival","player_stamina_drain_multiplier",   "1.0"),
+        "player_health_recovery_multiplier":  prev_get("survival","player_health_recovery_multiplier", "1.0"),
+        "dino_food_drain_multiplier":         prev_get("survival","dino_food_drain_multiplier",        "1.0"),
+        "dino_health_recovery_multiplier":    prev_get("survival","dino_health_recovery_multiplier",   "1.0"),
+    }
+    cfg["combat"] = {
+        "player_damage_multiplier":         prev_get("combat","player_damage_multiplier",        "1.0"),
+        "player_resistance_multiplier":     prev_get("combat","player_resistance_multiplier",    "1.0"),
+        "dino_damage_multiplier":           prev_get("combat","dino_damage_multiplier",          "1.0"),
+        "dino_resistance_multiplier":       prev_get("combat","dino_resistance_multiplier",      "1.0"),
+        "tamed_dino_damage_multiplier":     prev_get("combat","tamed_dino_damage_multiplier",    "1.0"),
+        "tamed_dino_resistance_multiplier": prev_get("combat","tamed_dino_resistance_multiplier","1.0"),
+        "structure_damage_multiplier":      prev_get("combat","structure_damage_multiplier",     "1.0"),
+        "show_floating_damage_text":        prev_get("combat","show_floating_damage_text",       "false"),
+        "allow_hit_markers":                prev_get("combat","allow_hit_markers",               "true"),
     }
     cfg["breeding"] = {
+        "mating_interval_multiplier":          mating_interval_mult,
+        "mating_speed_multiplier":             prev_get("breeding","mating_speed_multiplier",    "1.0"),
+        "egg_hatch_speed_multiplier":          egg_hatch_speed_mult,
+        "lay_egg_interval_multiplier":         prev_get("breeding","lay_egg_interval_multiplier","1.0"),
         "baby_mature_speed_multiplier":        baby_mature_speed,
         "baby_cuddle_interval_multiplier":     baby_cuddle_interval,
         "baby_cuddle_grace_period_multiplier": baby_cuddle_grace,
         "baby_imprint_amount_multiplier":      baby_imprint_amount,
     }
-    cfg["rates"] = {
-        "xp_multiplier":              xp_multiplier,
-        "taming_speed_multiplier":    taming_speed_multiplier,
-        "harvest_amount_multiplier":  harvest_amount_multiplier,
-        "difficulty_offset":          difficulty_offset,
-        "mating_interval_multiplier": mating_interval_mult,
-        "egg_hatch_speed_multiplier": egg_hatch_speed_mult,
+    cfg["structures"] = {
+        "structure_pickup_time_after_placement":    prev_get("structures","structure_pickup_time_after_placement",   "30"),
+        "per_platform_max_structures_multiplier":   prev_get("structures","per_platform_max_structures_multiplier",  "1.0"),
     }
-    cfg["schedule"] = {
-        "check_updates_on_startup": "true" if check_updates_on_startup else "false",
-        "restart_time": restart_time,
+    cfg["flags"] = {
+        "allow_third_person":              prev_get("flags","allow_third_person",              "false"),
+        "show_map_player_location":        prev_get("flags","show_map_player_location",        "true"),
+        "always_allow_structure_pickup":   prev_get("flags","always_allow_structure_pickup",   "true"),
+        "disable_structure_decay_pve":     prev_get("flags","disable_structure_decay_pve",     "false"),
+        "disable_dino_decay_pve":          prev_get("flags","disable_dino_decay_pve",          "false"),
+        "allow_cave_building_pve":         prev_get("flags","allow_cave_building_pve",         "false"),
+        "allow_anyone_baby_imprint_cuddle":prev_get("flags","allow_anyone_baby_imprint_cuddle","false"),
+        "allow_flyer_carry_pve":           prev_get("flags","allow_flyer_carry_pve",           "true"),
+        "allow_flyer_speed_leveling":      prev_get("flags","allow_flyer_speed_leveling",      "false"),
+        "prevent_download_survivors":      prev_get("flags","prevent_download_survivors",      "false"),
+        "prevent_download_items":          prev_get("flags","prevent_download_items",          "false"),
+        "require_powered_cryofridge":      prev_get("flags","require_powered_cryofridge",      "true"),
+        "disable_cryo_sickness_pvp":       prev_get("flags","disable_cryo_sickness_pvp",       "false"),
+        "force_allow_cave_flyers":         prev_get("flags","force_allow_cave_flyers",          "false"),
+        "exclusive_join":                  prev_get("flags","exclusive_join",                   "false"),
+    }
+    cfg["mods"] = {
+        "crossplay": prev_get("mods","crossplay","false"),
+        "mod_ids":   prev_get("mods","mod_ids",  ""),
     }
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

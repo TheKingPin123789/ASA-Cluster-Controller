@@ -18,7 +18,6 @@ _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _BASE_DIR    = os.path.dirname(_SCRIPTS_DIR)
 CONFIG_PATH  = os.path.join(_BASE_DIR, "controller", "config.ini")
 
-# ── Map definitions (key → display, map_name, game_port, query_port, rcon_port)
 MAP_DEFS = {
     "ragnarok":      ("Ragnarok",       "Ragnarok_WP",      7777, 27015, 27020),
     "thecenter":     ("The Center",     "TheCenter_WP",     7787, 27025, 27021),
@@ -32,106 +31,126 @@ MAP_DEFS = {
 }
 
 
-def _cfg_get(cfg: configparser.ConfigParser, section: str, key: str, fallback: str = "") -> str:
-    try:
-        return cfg.get(section, key).strip()
-    except (configparser.NoSectionError, configparser.NoOptionError):
-        return fallback
+def _g(cfg, s, k, fb=""):
+    try:    return cfg.get(s, k).strip()
+    except: return fb
+
+def _g2(cfg, s, k, fb, alt):
+    v = _g(cfg, s, k, None)
+    return v if v is not None else _g(cfg, alt, k, fb)
+
+def _b(cfg, s, k, fb):
+    return "True" if _g(cfg, s, k, fb).lower() == "true" else "False"
 
 
-def _patch_game_user_settings(cfg: configparser.ConfigParser, server_root: str) -> None:
-    """Patch GameUserSettings.ini with rates/flags from config.ini.
-
-    Uses line-by-line rewriting so that:
-    - Keys are matched case-insensitively (ARK writes lowercase; we use CamelCase)
-    - Values are written as key=value with no spaces (ARK's native format)
-    - Duplicate lowercase keys left by ARK are replaced, not appended
-    """
+def _patch_game_user_settings(cfg, server_root: str) -> None:
+    """Patch GameUserSettings.ini — line-by-line, case-insensitive, key=value format."""
     settings_path = os.path.join(
         server_root, "ShooterGame", "Saved", "Config", "WindowsServer", "GameUserSettings.ini"
     )
     os.makedirs(os.path.dirname(settings_path), exist_ok=True)
 
-    def r(s, k, fb):   return _cfg_get(cfg, s, k, fb)
-    def _b(s, k, fb):  return "True" if r(s, k, fb).lower() == "true" else "False"
-
     desired = {
-        "MaxPlayers":                              r("performance", "max_players",                               "70"),
-        "XPMultiplier":                            r("rates",       "xp_multiplier",                            "1.0"),
-        "TamingSpeedMultiplier":                   r("rates",       "taming_speed_multiplier",                  "1.0"),
-        "HarvestAmountMultiplier":                 r("rates",       "harvest_amount_multiplier",                "1.0"),
-        "DifficultyOffset":                        r("rates",       "difficulty_offset",                        "1.0"),
-        "MatingIntervalMultiplier":                r("rates",       "mating_interval_multiplier",               "1.0"),
-        "EggHatchSpeedMultiplier":                 r("rates",       "egg_hatch_speed_multiplier",               "1.0"),
-        "GlobalSpoilingTimeMultiplier":            r("rates",       "global_spoiling_time_multiplier",          "1.0"),
-        "GlobalItemDecompositionTimeMultiplier":   r("rates",       "global_item_decomposition_time_multiplier","1.0"),
-        "GlobalCorpseDecompositionTimeMultiplier": r("rates",       "global_corpse_decomposition_time_multiplier","1.0"),
-        "CropGrowthSpeedMultiplier":               r("rates",       "crop_growth_speed_multiplier",             "1.0"),
-        "MatingSpeedMultiplier":                   r("rates",       "mating_speed_multiplier",                  "1.0"),
-        "FuelConsumptionIntervalMultiplier":       r("rates",       "fuel_consumption_interval_multiplier",     "1.0"),
-        "AlwaysAllowStructurePickup":              _b("flags",      "always_allow_structure_pickup",            "true"),
-        "DisableStructureDecayPvE":                _b("flags",      "disable_structure_decay_pve",              "false"),
-        "AllowCaveBuildingPvE":                    _b("flags",      "allow_cave_building_pve",                  "false"),
-        "AllowAnyoneBabyImprintCuddle":            _b("flags",      "allow_anyone_baby_imprint_cuddle",         "false"),
-        "AllowFlyerCarryPvE":                      _b("flags",      "allow_flyer_carry_pve",                    "true"),
-        # bDisableCryopodEnemyCheck=True removes the powered-fridge-nearby requirement.
-        # Inverted: require_powered_cryofridge=true  → bDisableCryopodEnemyCheck=False
-        #           require_powered_cryofridge=false → bDisableCryopodEnemyCheck=True
-        "bDisableCryopodEnemyCheck":               "False" if r("flags", "require_powered_cryofridge", "true").lower() == "true" else "True",
-        "BabyMatureSpeedMultiplier":               r("breeding",    "baby_mature_speed_multiplier",             "1.0"),
-        "BabyCuddleIntervalMultiplier":            r("breeding",    "baby_cuddle_interval_multiplier",          "1.0"),
-        "BabyCuddleGracePeriodMultiplier":         r("breeding",    "baby_cuddle_grace_period_multiplier",      "1.0"),
-        "BabyImprintAmountMultiplier":             r("breeding",    "baby_imprint_amount_multiplier",           "1.0"),
+        # Limits
+        "MaxPlayers":                              _g2(cfg,"limits","max_players","70","performance"),
+        "MaxTamedDinos":                           _g(cfg, "limits","max_tamed_dinos","5000"),
+        "MaxPersonalTamedDinos":                   _g(cfg, "limits","max_personal_tamed_dinos","40"),
+        # World
+        "DayTimeSpeedScale":                       _g(cfg, "world","day_time_speed_scale","1.0"),
+        "NightTimeSpeedScale":                     _g(cfg, "world","night_time_speed_scale","1.0"),
+        "DinoCountMultiplier":                     _g(cfg, "world","dino_count_multiplier","1.0"),
+        "ResourcesRespawnPeriodMultiplier":        _g(cfg, "world","resources_respawn_period_multiplier","1.0"),
+        # Rates
+        "XPMultiplier":                            _g(cfg, "rates","xp_multiplier","1.0"),
+        "TamingSpeedMultiplier":                   _g(cfg, "rates","taming_speed_multiplier","1.0"),
+        "HarvestAmountMultiplier":                 _g(cfg, "rates","harvest_amount_multiplier","1.0"),
+        "DifficultyOffset":                        _g(cfg, "rates","difficulty_offset","1.0"),
+        "ItemStackSizeMultiplier":                 _g(cfg, "rates","item_stack_size_multiplier","1.0"),
+        "LootQualityMultiplier":                   _g(cfg, "rates","loot_quality_multiplier","1.0"),
+        "FishingLootQualityMultiplier":            _g(cfg, "rates","fishing_loot_quality_multiplier","1.0"),
+        "SupplyCrateLootQualityMultiplier":        _g(cfg, "rates","supply_crate_loot_quality_multiplier","1.0"),
+        "GlobalSpoilingTimeMultiplier":            _g(cfg, "rates","global_spoiling_time_multiplier","1.0"),
+        "GlobalItemDecompositionTimeMultiplier":   _g(cfg, "rates","global_item_decomposition_time_multiplier","1.0"),
+        "GlobalCorpseDecompositionTimeMultiplier": _g(cfg, "rates","global_corpse_decomposition_time_multiplier","1.0"),
+        "CropGrowthSpeedMultiplier":               _g(cfg, "rates","crop_growth_speed_multiplier","1.0"),
+        "FuelConsumptionIntervalMultiplier":       _g(cfg, "rates","fuel_consumption_interval_multiplier","1.0"),
+        # Survival
+        "PlayerCharacterFoodDrainMultiplier":      _g(cfg, "survival","player_food_drain_multiplier","1.0"),
+        "PlayerCharacterWaterDrainMultiplier":     _g(cfg, "survival","player_water_drain_multiplier","1.0"),
+        "PlayerCharacterStaminaDrainMultiplier":   _g(cfg, "survival","player_stamina_drain_multiplier","1.0"),
+        "PlayerCharacterHealthRecoveryMultiplier": _g(cfg, "survival","player_health_recovery_multiplier","1.0"),
+        "DinoCharacterFoodDrainMultiplier":        _g(cfg, "survival","dino_food_drain_multiplier","1.0"),
+        "DinoCharacterHealthRecoveryMultiplier":   _g(cfg, "survival","dino_health_recovery_multiplier","1.0"),
+        # Combat
+        "PlayerDamageMultiplier":                  _g(cfg, "combat","player_damage_multiplier","1.0"),
+        "PlayerResistanceMultiplier":              _g(cfg, "combat","player_resistance_multiplier","1.0"),
+        "DinoDamageMultiplier":                    _g(cfg, "combat","dino_damage_multiplier","1.0"),
+        "DinoResistanceMultiplier":                _g(cfg, "combat","dino_resistance_multiplier","1.0"),
+        "TamedDinoDamageMultiplier":               _g(cfg, "combat","tamed_dino_damage_multiplier","1.0"),
+        "TamedDinoResistanceMultiplier":           _g(cfg, "combat","tamed_dino_resistance_multiplier","1.0"),
+        "StructureDamageMultiplier":               _g(cfg, "combat","structure_damage_multiplier","1.0"),
+        "ShowFloatingDamageText":                  _b(cfg, "combat","show_floating_damage_text","false"),
+        "AllowHitMarkers":                         _b(cfg, "combat","allow_hit_markers","true"),
+        # Breeding
+        "MatingIntervalMultiplier":                _g2(cfg,"breeding","mating_interval_multiplier","1.0","rates"),
+        "MatingSpeedMultiplier":                   _g2(cfg,"breeding","mating_speed_multiplier","1.0","rates"),
+        "EggHatchSpeedMultiplier":                 _g2(cfg,"breeding","egg_hatch_speed_multiplier","1.0","rates"),
+        "LayEggIntervalMultiplier":                _g(cfg, "breeding","lay_egg_interval_multiplier","1.0"),
+        "BabyMatureSpeedMultiplier":               _g(cfg, "breeding","baby_mature_speed_multiplier","1.0"),
+        "BabyCuddleIntervalMultiplier":            _g(cfg, "breeding","baby_cuddle_interval_multiplier","1.0"),
+        "BabyCuddleGracePeriodMultiplier":         _g(cfg, "breeding","baby_cuddle_grace_period_multiplier","1.0"),
+        "BabyImprintAmountMultiplier":             _g(cfg, "breeding","baby_imprint_amount_multiplier","1.0"),
+        # Structures
+        "StructurePickupTimeAfterPlacement":       _g(cfg, "structures","structure_pickup_time_after_placement","30"),
+        "PerPlatformMaxStructuresMultiplier":      _g(cfg, "structures","per_platform_max_structures_multiplier","1.0"),
+        # Flags
+        "AlwaysAllowStructurePickup":              _b(cfg, "flags","always_allow_structure_pickup","true"),
+        "DisableStructureDecayPvE":                _b(cfg, "flags","disable_structure_decay_pve","false"),
+        "DisableDinoDecayPvE":                     _b(cfg, "flags","disable_dino_decay_pve","false"),
+        "AllowCaveBuildingPvE":                    _b(cfg, "flags","allow_cave_building_pve","false"),
+        "AllowAnyoneBabyImprintCuddle":            _b(cfg, "flags","allow_anyone_baby_imprint_cuddle","false"),
+        "AllowFlyerCarryPvE":                      _b(cfg, "flags","allow_flyer_carry_pve","true"),
+        "AllowFlyerSpeedLeveling":                 _b(cfg, "flags","allow_flyer_speed_leveling","false"),
+        "DisableCryoSicknessPVP":                  _b(cfg, "flags","disable_cryo_sickness_pvp","false"),
+        "bDisableCryopodEnemyCheck":               "False" if _g(cfg,"flags","require_powered_cryofridge","true").lower() == "true" else "True",
     }
 
-    # Lowercase lookup so we can match ARK's own lowercase key names
     desired_lower = {k.lower(): (k, v) for k, v in desired.items()}
 
-    # Read existing file (or start fresh)
     if os.path.exists(settings_path):
         with open(settings_path, "r", encoding="utf-8") as f:
             orig_lines = f.readlines()
     else:
         orig_lines = ["[ServerSettings]\n"]
 
-    # Rewrite line-by-line
     in_ss  = False
     seen   = set()
     result = []
 
     for line in orig_lines:
         stripped = line.strip()
-
         if stripped.startswith("["):
             if in_ss:
-                # Leaving [ServerSettings] — flush any keys not yet written
                 for lk, (ck, val) in desired_lower.items():
                     if lk not in seen:
-                        result.append(f"{ck}={val}\n")
-                        seen.add(lk)
+                        result.append(f"{ck}={val}\n"); seen.add(lk)
             in_ss = stripped.lower() == "[serversettings]"
-            result.append(line)
-            continue
-
+            result.append(line); continue
         if in_ss and "=" in stripped and not stripped.startswith(";"):
             key_part = stripped.split("=", 1)[0].strip().lower()
             if key_part in desired_lower:
                 ck, val = desired_lower[key_part]
                 if key_part not in seen:
-                    result.append(f"{ck}={val}\n")
-                    seen.add(key_part)
-                continue  # drop original (possibly duplicate/lowercase) line
+                    result.append(f"{ck}={val}\n"); seen.add(key_part)
+                continue
             result.append(line)
         else:
             result.append(line)
 
-    # EOF while still inside [ServerSettings]
     if in_ss:
         for lk, (ck, val) in desired_lower.items():
             if lk not in seen:
                 result.append(f"{ck}={val}\n")
-
-    # [ServerSettings] not found at all — append it
     if not seen:
         result.append("\n[ServerSettings]\n")
         for ck, val in desired.items():
@@ -141,58 +160,54 @@ def _patch_game_user_settings(cfg: configparser.ConfigParser, server_root: str) 
     if new_text != "".join(orig_lines):
         with open(settings_path, "w", encoding="utf-8") as f:
             f.write(new_text)
-        print(f"  GameUserSettings.ini patched.")
+        print("  GameUserSettings.ini patched.")
 
 
 def main() -> None:
-    # ── Resolve map key ───────────────────────────────────────────────────────
     if len(sys.argv) < 2:
         print("Usage: python launch_map.py <map_key>")
         print("Available maps:", ", ".join(MAP_DEFS))
-        input("\nPress Enter to close...")
-        sys.exit(1)
+        input("\nPress Enter to close..."); sys.exit(1)
 
     key = sys.argv[1].lower().strip()
     if key not in MAP_DEFS:
         print(f"Unknown map: '{key}'")
         print("Available maps:", ", ".join(MAP_DEFS))
-        input("\nPress Enter to close...")
-        sys.exit(1)
+        input("\nPress Enter to close..."); sys.exit(1)
 
-    # ── Load config.ini ───────────────────────────────────────────────────────
     if not os.path.exists(CONFIG_PATH):
         print(f"config.ini not found at:\n  {CONFIG_PATH}")
         print("\nRun the setup wizard (start_controller.bat) to create one first.")
-        input("\nPress Enter to close...")
-        sys.exit(1)
+        input("\nPress Enter to close..."); sys.exit(1)
 
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
 
-    server_root   = _cfg_get(cfg, "paths",       "server_root",                r"C:\ASA_Cluster\asa_server")
-    cluster_dir   = _cfg_get(cfg, "paths",       "cluster_dir",                os.path.join(server_root, "cluster"))
-    cluster_name  = _cfg_get(cfg, "cluster",     "cluster_name",               "MyCluster")
-    cluster_id    = cluster_name.replace(" ", "") + "Cluster"
-    rcon_password = _cfg_get(cfg, "cluster",     "rcon_password",              "ChangeMe123")
-    max_players   = _cfg_get(cfg, "performance", "max_players",                "70")
-    allow_tp      = _cfg_get(cfg, "flags",       "allow_third_person",         "false").lower() == "true"
-    show_map_loc  = _cfg_get(cfg, "flags",       "show_map_player_location",   "true").lower()  == "true"
-    no_dl_surv    = _cfg_get(cfg, "flags",       "prevent_download_survivors", "false").lower() == "true"
-    no_dl_items   = _cfg_get(cfg, "flags",       "prevent_download_items",     "false").lower() == "true"
+    server_root   = _g2(cfg,"paths","server_root",       r"C:\ASA_Cluster\asa_server","paths")
+    cluster_dir   = _g(cfg, "paths","cluster_dir",       os.path.join(server_root,"cluster"))
+    cluster_name  = _g(cfg, "cluster","cluster_name",    "MyCluster")
+    cluster_id    = cluster_name.replace(" ","") + "Cluster"
+    rcon_password = _g(cfg, "cluster","rcon_password",   "ChangeMe123")
+    max_players   = _g2(cfg,"limits","max_players",      "70","performance")
+    allow_tp      = _g(cfg, "flags","allow_third_person",        "false").lower() == "true"
+    show_map_loc  = _g(cfg, "flags","show_map_player_location",  "true").lower()  == "true"
+    no_dl_surv    = _g(cfg, "flags","prevent_download_survivors","false").lower() == "true"
+    no_dl_items   = _g(cfg, "flags","prevent_download_items",    "false").lower() == "true"
+    cave_flyers   = _g(cfg, "flags","force_allow_cave_flyers",   "false").lower() == "true"
+    excl_join     = _g(cfg, "flags","exclusive_join",            "false").lower() == "true"
+    crossplay     = _g(cfg, "mods", "crossplay",                 "false").lower() == "true"
+    mod_ids       = _g(cfg, "mods", "mod_ids",                   "").strip()
+    active_event  = _g(cfg, "world","active_event",              "").strip()
 
-    # ── Resolve EXE ───────────────────────────────────────────────────────────
     exe = os.path.join(server_root, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
     if not os.path.exists(exe):
         print(f"ArkAscendedServer.exe not found at:\n  {exe}")
         print("\nCheck server_root in config.ini, or run the controller to download the server.")
-        input("\nPress Enter to close...")
-        sys.exit(1)
+        input("\nPress Enter to close..."); sys.exit(1)
 
-    # ── Patch GameUserSettings.ini with rates from config.ini ─────────────────
     print("Applying rates from config.ini...")
     _patch_game_user_settings(cfg, server_root)
 
-    # ── Build launch command ──────────────────────────────────────────────────
     display, map_name, game_port, query_port, rcon_port = MAP_DEFS[key]
     session_name = f"{cluster_name}_{display.replace(' ', '')}"
 
@@ -215,8 +230,12 @@ def main() -> None:
     if show_map_loc: flags.append("-ShowMapPlayerLocation")
     if no_dl_surv:   flags.append("-PreventDownloadSurvivors")
     if no_dl_items:  flags.append("-PreventDownloadItems")
+    if cave_flyers:  flags.append("-ForceAllowCaveFlyers")
+    if excl_join:    flags.append("-exclusivejoin")
+    if crossplay:    flags.append("-crossplay")
+    if mod_ids:      flags.append(f"-GameModIds={mod_ids}")
+    if active_event: flags.append(f"-ActiveEvent={active_event}")
 
-    # ── Launch ────────────────────────────────────────────────────────────────
     print(f"Launching {display}...")
     print(f"  Session : {session_name}")
     print(f"  Ports   : game={game_port}  query={query_port}  rcon={rcon_port}")
@@ -228,7 +247,6 @@ def main() -> None:
         cwd=os.path.dirname(exe),
         creationflags=subprocess.CREATE_NEW_CONSOLE,
     )
-
     print(f"{display} launched successfully.")
 
 

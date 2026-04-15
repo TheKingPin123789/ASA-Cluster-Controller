@@ -41,62 +41,123 @@ def _ci(section: str, key: str, fallback: str = "") -> str:
     except Exception:
         return fallback
 
-CLUSTER_NAME                  = _ci("cluster",     "cluster_name",           "MyCluster")
-CLUSTER_ID                    = CLUSTER_NAME.replace(" ", "") + "Cluster"
-RCON_PASSWORD                 = _ci("cluster",     "rcon_password",          "ChangeMe123")
-SERVER_ROOT                   = _ci("paths",       "server_root",            r"C:\asa_server")
-CLUSTER_DIR                   = _ci("paths",       "cluster_dir",            rf"{SERVER_ROOT}\cluster")
-STEAMCMD_EXE                  = _ci("paths",       "steamcmd_path",          r"C:\ASA_Cluster\SteamCMD\steamcmd.exe")
-MAX_ACTIVE_SERVERS            = int(_ci("performance", "max_active_servers", "3"))
-MAX_PLAYERS                   = int(_ci("performance", "max_players",         "70"))
-POLL_SECONDS                  = int(_ci("timers",  "poll_seconds",           "5"))
-MAP_SHUTDOWN_DELAY_SECONDS    = int(_ci("timers",  "map_shutdown_minutes",   "15")) * 60
-STARTUP_GRACE_SECONDS         = int(_ci("timers",  "startup_grace_minutes",  "15")) * 60
-AUTOSAVE_SECONDS              = int(_ci("timers",  "autosave_minutes",       "15")) * 60
-CLUSTER_SHUTDOWN_DELAY_SECONDS = int(_ci("timers", "cluster_shutdown_minutes","30")) * 60
+def _ci2(section: str, key: str, fallback: str, alt_section: str) -> str:
+    """Try section first, then alt_section (backward compat for renamed sections)."""
+    v = _ci(section, key, None)
+    return v if v is not None else _ci(alt_section, key, fallback)
 
-SAVE_BEFORE_EXIT_WAIT_SECONDS  = int(_ci("timers",  "save_before_exit_seconds",       "10"))
-SERVER_START_TIMEOUT_SECONDS   = int(_ci("timers",  "server_start_timeout_seconds",   "300"))
-POST_SHUTDOWN_WAIT_SECONDS     = int(_ci("timers",  "post_shutdown_wait_seconds",      "60"))
-CRASH_DETECTION_THRESHOLD      = int(_ci("timers",  "crash_detection_threshold",       "5"))
-DEFAULT_SERVER_KEY            = _ci("cluster",      "default_map",                   "ragnarok")
-HOST                          = _ci("network",      "rcon_host",                     "127.0.0.1")
-SHUTDOWN_WARNING_MINUTES      = {60, 30, 15, 10, 5, 4, 3, 2, 1}
+# ── Cluster / network / paths ─────────────────────────────────────────────────
+CLUSTER_NAME   = _ci("cluster", "cluster_name",  "MyCluster")
+CLUSTER_ID     = CLUSTER_NAME.replace(" ", "") + "Cluster"
+RCON_PASSWORD  = _ci("cluster", "rcon_password", "ChangeMe123")
+SERVER_ROOT    = _ci("paths",   "server_root",   r"C:\asa_server")
+CLUSTER_DIR    = _ci("paths",   "cluster_dir",   rf"{SERVER_ROOT}\cluster")
+STEAMCMD_EXE   = _ci("paths",   "steamcmd_path", r"C:\ASA_Cluster\SteamCMD\steamcmd.exe")
+HOST           = _ci("network", "rcon_host",     "127.0.0.1")
+DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "ragnarok")
 
-RESTART_TIME              = _ci("schedule", "restart_time",             "06:00") # HH:MM or empty
-CHECK_UPDATES_ON_STARTUP  = _ci("schedule", "check_updates_on_startup", "true").lower() == "true"
+# ── Limits (formerly [performance]) ───────────────────────────────────────────
+MAX_ACTIVE_SERVERS       = int(_ci2("limits", "max_active_servers",    "3",    "performance"))
+MAX_PLAYERS              = int(_ci2("limits", "max_players",           "70",   "performance"))
+MAX_TAMED_DINOS          = int(_ci("limits",  "max_tamed_dinos",       "5000"))
+MAX_PERSONAL_TAMED_DINOS = int(_ci("limits",  "max_personal_tamed_dinos", "40"))
 
-BACKUP_DIR   = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
-MAX_BACKUPS  = int(_ci("backup", "max_backups", "10"))
+# ── Schedule ──────────────────────────────────────────────────────────────────
+POLL_SECONDS             = int(_ci2("schedule", "poll_seconds",           "5",      "timers"))
+RESTART_TIME             = _ci("schedule", "restart_time",                "")
+CHECK_UPDATES_ON_STARTUP = _ci("schedule", "check_updates_on_startup",   "true").lower() == "true"
 
-BABY_MATURE_SPEED_MULT        = _ci("breeding", "baby_mature_speed_multiplier",        "1.0")
-BABY_CUDDLE_INTERVAL_MULT     = _ci("breeding", "baby_cuddle_interval_multiplier",     "1.0")
-BABY_CUDDLE_GRACE_PERIOD_MULT = _ci("breeding", "baby_cuddle_grace_period_multiplier", "1.0")
-BABY_IMPRINT_AMOUNT_MULT      = _ci("breeding", "baby_imprint_amount_multiplier",      "1.0")
+# ── Timers ────────────────────────────────────────────────────────────────────
+MAP_SHUTDOWN_DELAY_SECONDS      = int(_ci("timers", "map_shutdown_minutes",          "15")) * 60
+STARTUP_GRACE_SECONDS           = int(_ci("timers", "startup_grace_minutes",         "15")) * 60
+AUTOSAVE_SECONDS                = int(_ci("timers", "autosave_minutes",              "15")) * 60
+CLUSTER_SHUTDOWN_DELAY_SECONDS  = int(_ci("timers", "cluster_shutdown_minutes",      "30")) * 60
+SERVER_START_TIMEOUT_SECONDS    = int(_ci("timers", "server_start_timeout_seconds",  "300"))
+SAVE_BEFORE_EXIT_WAIT_SECONDS   = int(_ci("timers", "save_before_exit_seconds",      "10"))
+POST_SHUTDOWN_WAIT_SECONDS      = int(_ci("timers", "post_shutdown_wait_seconds",    "60"))
+CRASH_DETECTION_THRESHOLD       = int(_ci("timers", "crash_detection_threshold",     "5"))
+SHUTDOWN_WARNING_MINUTES        = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 
-XP_MULTIPLIER             = _ci("rates", "xp_multiplier",              "1.0")
-TAMING_SPEED_MULTIPLIER   = _ci("rates", "taming_speed_multiplier",    "1.0")
-HARVEST_AMOUNT_MULTIPLIER = _ci("rates", "harvest_amount_multiplier",  "1.0")
-DIFFICULTY_OFFSET         = _ci("rates", "difficulty_offset",          "1.0")
-MATING_INTERVAL_MULT      = _ci("rates", "mating_interval_multiplier", "1.0")
-EGG_HATCH_SPEED_MULT      = _ci("rates", "egg_hatch_speed_multiplier",                    "1.0")
-GLOBAL_SPOILING_TIME_MULT = _ci("rates", "global_spoiling_time_multiplier",               "1.0")
-GLOBAL_ITEM_DECOMP_MULT   = _ci("rates", "global_item_decomposition_time_multiplier",     "1.0")
-GLOBAL_CORPSE_DECOMP_MULT = _ci("rates", "global_corpse_decomposition_time_multiplier",   "1.0")
-CROP_GROWTH_SPEED_MULT    = _ci("rates", "crop_growth_speed_multiplier",                  "1.0")
-MATING_SPEED_MULT         = _ci("rates", "mating_speed_multiplier",                       "1.0")
-FUEL_CONSUMPTION_MULT     = _ci("rates", "fuel_consumption_interval_multiplier",          "1.0")
+# ── Backup ────────────────────────────────────────────────────────────────────
+BACKUP_DIR  = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
+MAX_BACKUPS = int(_ci("backup", "max_backups", "10"))
 
-FLAG_THIRD_PERSON           = _ci("flags", "allow_third_person",              "false").lower() == "true"
-FLAG_SHOW_MAP_LOC           = _ci("flags", "show_map_player_location",        "true").lower()  == "true"
-FLAG_STRUCTURE_PICKUP       = _ci("flags", "always_allow_structure_pickup",   "true").lower()  == "true"
-FLAG_DISABLE_STRUCT_DECAY   = _ci("flags", "disable_structure_decay_pve",     "false").lower() == "true"
-FLAG_CAVE_BUILDING          = _ci("flags", "allow_cave_building_pve",         "false").lower() == "true"
-FLAG_ANYONE_IMPRINT         = _ci("flags", "allow_anyone_baby_imprint_cuddle","false").lower() == "true"
-FLAG_FLYER_CARRY            = _ci("flags", "allow_flyer_carry_pve",           "true").lower()  == "true"
-FLAG_NO_DL_SURVIVORS        = _ci("flags", "prevent_download_survivors",      "false").lower() == "true"
-FLAG_NO_DL_ITEMS            = _ci("flags", "prevent_download_items",          "false").lower() == "true"
-FLAG_REQUIRE_CRYOFRIDGE     = _ci("flags", "require_powered_cryofridge",      "true").lower()  == "true"
+# ── World ─────────────────────────────────────────────────────────────────────
+DAY_TIME_SPEED       = _ci("world", "day_time_speed_scale",               "1.0")
+NIGHT_TIME_SPEED     = _ci("world", "night_time_speed_scale",             "1.0")
+DINO_COUNT_MULT      = _ci("world", "dino_count_multiplier",              "1.0")
+RESOURCES_RESPAWN    = _ci("world", "resources_respawn_period_multiplier","1.0")
+ACTIVE_EVENT         = _ci("world", "active_event",                       "").strip()
+DISABLE_WEATHER_FOG  = _ci("world", "disable_weather_fog",                "false").lower() == "true"
+
+# ── Rates ─────────────────────────────────────────────────────────────────────
+XP_MULTIPLIER             = _ci("rates", "xp_multiplier",                              "1.0")
+TAMING_SPEED_MULTIPLIER   = _ci("rates", "taming_speed_multiplier",                    "1.0")
+HARVEST_AMOUNT_MULTIPLIER = _ci("rates", "harvest_amount_multiplier",                  "1.0")
+DIFFICULTY_OFFSET         = _ci("rates", "difficulty_offset",                          "1.0")
+ITEM_STACK_SIZE_MULT      = _ci("rates", "item_stack_size_multiplier",                 "1.0")
+LOOT_QUALITY_MULT         = _ci("rates", "loot_quality_multiplier",                    "1.0")
+FISHING_LOOT_MULT         = _ci("rates", "fishing_loot_quality_multiplier",            "1.0")
+SUPPLY_CRATE_LOOT_MULT    = _ci("rates", "supply_crate_loot_quality_multiplier",       "1.0")
+GLOBAL_SPOILING_TIME_MULT = _ci("rates", "global_spoiling_time_multiplier",            "1.0")
+GLOBAL_ITEM_DECOMP_MULT   = _ci("rates", "global_item_decomposition_time_multiplier",  "1.0")
+GLOBAL_CORPSE_DECOMP_MULT = _ci("rates", "global_corpse_decomposition_time_multiplier","1.0")
+CROP_GROWTH_SPEED_MULT    = _ci("rates", "crop_growth_speed_multiplier",               "1.0")
+FUEL_CONSUMPTION_MULT     = _ci("rates", "fuel_consumption_interval_multiplier",       "1.0")
+
+# ── Survival ──────────────────────────────────────────────────────────────────
+PLAYER_FOOD_DRAIN    = _ci("survival", "player_food_drain_multiplier",         "1.0")
+PLAYER_WATER_DRAIN   = _ci("survival", "player_water_drain_multiplier",        "1.0")
+PLAYER_STAMINA_DRAIN = _ci("survival", "player_stamina_drain_multiplier",      "1.0")
+PLAYER_HEALTH_REGEN  = _ci("survival", "player_health_recovery_multiplier",    "1.0")
+DINO_FOOD_DRAIN      = _ci("survival", "dino_food_drain_multiplier",           "1.0")
+DINO_HEALTH_REGEN    = _ci("survival", "dino_health_recovery_multiplier",      "1.0")
+
+# ── Combat ────────────────────────────────────────────────────────────────────
+PLAYER_DAMAGE_MULT     = _ci("combat", "player_damage_multiplier",        "1.0")
+PLAYER_RESISTANCE_MULT = _ci("combat", "player_resistance_multiplier",    "1.0")
+DINO_DAMAGE_MULT       = _ci("combat", "dino_damage_multiplier",          "1.0")
+DINO_RESISTANCE_MULT   = _ci("combat", "dino_resistance_multiplier",      "1.0")
+TAMED_DINO_DAMAGE_MULT = _ci("combat", "tamed_dino_damage_multiplier",    "1.0")
+TAMED_DINO_RES_MULT    = _ci("combat", "tamed_dino_resistance_multiplier","1.0")
+STRUCT_DAMAGE_MULT     = _ci("combat", "structure_damage_multiplier",     "1.0")
+FLAG_FLOAT_DAMAGE      = _ci("combat", "show_floating_damage_text",       "false").lower() == "true"
+FLAG_HIT_MARKERS       = _ci("combat", "allow_hit_markers",               "true").lower()  == "true"
+
+# ── Breeding ─────────────────────────────────────────────────────────────────
+MATING_INTERVAL_MULT      = _ci2("breeding","mating_interval_multiplier", "1.0","rates")
+MATING_SPEED_MULT         = _ci2("breeding","mating_speed_multiplier",    "1.0","rates")
+EGG_HATCH_SPEED_MULT      = _ci2("breeding","egg_hatch_speed_multiplier", "1.0","rates")
+LAY_EGG_INTERVAL_MULT     = _ci("breeding", "lay_egg_interval_multiplier",        "1.0")
+BABY_MATURE_SPEED_MULT        = _ci("breeding","baby_mature_speed_multiplier",        "1.0")
+BABY_CUDDLE_INTERVAL_MULT     = _ci("breeding","baby_cuddle_interval_multiplier",     "1.0")
+BABY_CUDDLE_GRACE_PERIOD_MULT = _ci("breeding","baby_cuddle_grace_period_multiplier", "1.0")
+BABY_IMPRINT_AMOUNT_MULT      = _ci("breeding","baby_imprint_amount_multiplier",      "1.0")
+
+# ── Structures ────────────────────────────────────────────────────────────────
+STRUCT_PICKUP_TIME  = _ci("structures", "structure_pickup_time_after_placement",       "30")
+PER_PLATFORM_STRUCT = _ci("structures", "per_platform_max_structures_multiplier",      "1.0")
+
+# ── Flags ─────────────────────────────────────────────────────────────────────
+FLAG_THIRD_PERSON         = _ci("flags","allow_third_person",              "false").lower() == "true"
+FLAG_SHOW_MAP_LOC         = _ci("flags","show_map_player_location",        "true").lower()  == "true"
+FLAG_STRUCTURE_PICKUP     = _ci("flags","always_allow_structure_pickup",   "true").lower()  == "true"
+FLAG_DISABLE_STRUCT_DECAY = _ci("flags","disable_structure_decay_pve",     "false").lower() == "true"
+FLAG_DISABLE_DINO_DECAY   = _ci("flags","disable_dino_decay_pve",          "false").lower() == "true"
+FLAG_CAVE_BUILDING        = _ci("flags","allow_cave_building_pve",         "false").lower() == "true"
+FLAG_ANYONE_IMPRINT       = _ci("flags","allow_anyone_baby_imprint_cuddle","false").lower() == "true"
+FLAG_FLYER_CARRY          = _ci("flags","allow_flyer_carry_pve",           "true").lower()  == "true"
+FLAG_FLYER_SPEED          = _ci("flags","allow_flyer_speed_leveling",      "false").lower() == "true"
+FLAG_NO_DL_SURVIVORS      = _ci("flags","prevent_download_survivors",      "false").lower() == "true"
+FLAG_NO_DL_ITEMS          = _ci("flags","prevent_download_items",          "false").lower() == "true"
+FLAG_REQUIRE_CRYOFRIDGE   = _ci("flags","require_powered_cryofridge",      "true").lower()  == "true"
+FLAG_CRYO_SICKNESS        = _ci("flags","disable_cryo_sickness_pvp",       "false").lower() == "true"
+FLAG_CAVE_FLYERS          = _ci("flags","force_allow_cave_flyers",          "false").lower() == "true"
+FLAG_EXCLUSIVE_JOIN       = _ci("flags","exclusive_join",                   "false").lower() == "true"
+
+# ── Mods ─────────────────────────────────────────────────────────────────────
+CROSSPLAY = _ci("mods", "crossplay", "false").lower() == "true"
+MOD_IDS   = _ci("mods", "mod_ids",   "").strip()
 
 SHOULD_EXIT    = False
 LAST_SUMMARY_LINE = None
@@ -333,33 +394,75 @@ def _patch_game_user_settings() -> None:
     def r(s, k, fb): return _lci(c, s, k, fb)
     def _b(s, k, fb): return "True" if r(s, k, fb).lower() == "true" else "False"
 
+    # Helper: try new section, fall back to old (compat for mating/egg moved from [rates])
+    def r2(new_s, old_s, k, fb):
+        v = _lci(c, new_s, k, None)
+        return v if v is not None else _lci(c, old_s, k, fb)
+
     desired = {
-        "MaxPlayers":                              r("performance", "max_players",                               str(MAX_PLAYERS)),
-        "XPMultiplier":                            r("rates",       "xp_multiplier",                            XP_MULTIPLIER),
-        "TamingSpeedMultiplier":                   r("rates",       "taming_speed_multiplier",                  TAMING_SPEED_MULTIPLIER),
-        "HarvestAmountMultiplier":                 r("rates",       "harvest_amount_multiplier",                HARVEST_AMOUNT_MULTIPLIER),
-        "DifficultyOffset":                        r("rates",       "difficulty_offset",                        DIFFICULTY_OFFSET),
-        "MatingIntervalMultiplier":                r("rates",       "mating_interval_multiplier",               MATING_INTERVAL_MULT),
-        "EggHatchSpeedMultiplier":                 r("rates",       "egg_hatch_speed_multiplier",               EGG_HATCH_SPEED_MULT),
-        "GlobalSpoilingTimeMultiplier":            r("rates",       "global_spoiling_time_multiplier",          GLOBAL_SPOILING_TIME_MULT),
-        "GlobalItemDecompositionTimeMultiplier":   r("rates",       "global_item_decomposition_time_multiplier",GLOBAL_ITEM_DECOMP_MULT),
-        "GlobalCorpseDecompositionTimeMultiplier": r("rates",       "global_corpse_decomposition_time_multiplier", GLOBAL_CORPSE_DECOMP_MULT),
-        "CropGrowthSpeedMultiplier":               r("rates",       "crop_growth_speed_multiplier",             CROP_GROWTH_SPEED_MULT),
-        "MatingSpeedMultiplier":                   r("rates",       "mating_speed_multiplier",                  MATING_SPEED_MULT),
-        "FuelConsumptionIntervalMultiplier":       r("rates",       "fuel_consumption_interval_multiplier",     FUEL_CONSUMPTION_MULT),
-        "AlwaysAllowStructurePickup":              _b("flags",      "always_allow_structure_pickup",            "true"),
-        "DisableStructureDecayPvE":                _b("flags",      "disable_structure_decay_pve",              "false"),
-        "AllowCaveBuildingPvE":                    _b("flags",      "allow_cave_building_pve",                  "false"),
-        "AllowAnyoneBabyImprintCuddle":            _b("flags",      "allow_anyone_baby_imprint_cuddle",         "false"),
-        "AllowFlyerCarryPvE":                      _b("flags",      "allow_flyer_carry_pve",                    "true"),
-        # bDisableCryopodEnemyCheck=True removes the powered-fridge-nearby requirement.
-        # We invert: require_powered_cryofridge=true  → DisableCryopodEnemyCheck=False
-        #            require_powered_cryofridge=false → DisableCryopodEnemyCheck=True
-        "bDisableCryopodEnemyCheck":               "False" if r("flags", "require_powered_cryofridge", "true").lower() == "true" else "True",
-        "BabyMatureSpeedMultiplier":               r("breeding",    "baby_mature_speed_multiplier",             BABY_MATURE_SPEED_MULT),
-        "BabyCuddleIntervalMultiplier":            r("breeding",    "baby_cuddle_interval_multiplier",          BABY_CUDDLE_INTERVAL_MULT),
-        "BabyCuddleGracePeriodMultiplier":         r("breeding",    "baby_cuddle_grace_period_multiplier",      BABY_CUDDLE_GRACE_PERIOD_MULT),
-        "BabyImprintAmountMultiplier":             r("breeding",    "baby_imprint_amount_multiplier",           BABY_IMPRINT_AMOUNT_MULT),
+        # ── Limits ────────────────────────────────────────────────────────────
+        "MaxPlayers":                              r2("limits",    "performance","max_players",                               str(MAX_PLAYERS)),
+        "MaxTamedDinos":                           r("limits",     "max_tamed_dinos",                                        "5000"),
+        "MaxPersonalTamedDinos":                   r("limits",     "max_personal_tamed_dinos",                               "40"),
+        # ── World ─────────────────────────────────────────────────────────────
+        "DayTimeSpeedScale":                       r("world",      "day_time_speed_scale",                                   DAY_TIME_SPEED),
+        "NightTimeSpeedScale":                     r("world",      "night_time_speed_scale",                                 NIGHT_TIME_SPEED),
+        "DinoCountMultiplier":                     r("world",      "dino_count_multiplier",                                  DINO_COUNT_MULT),
+        "ResourcesRespawnPeriodMultiplier":        r("world",      "resources_respawn_period_multiplier",                   RESOURCES_RESPAWN),
+        # ── Rates ─────────────────────────────────────────────────────────────
+        "XPMultiplier":                            r("rates",      "xp_multiplier",                                          XP_MULTIPLIER),
+        "TamingSpeedMultiplier":                   r("rates",      "taming_speed_multiplier",                                TAMING_SPEED_MULTIPLIER),
+        "HarvestAmountMultiplier":                 r("rates",      "harvest_amount_multiplier",                              HARVEST_AMOUNT_MULTIPLIER),
+        "DifficultyOffset":                        r("rates",      "difficulty_offset",                                      DIFFICULTY_OFFSET),
+        "ItemStackSizeMultiplier":                 r("rates",      "item_stack_size_multiplier",                             ITEM_STACK_SIZE_MULT),
+        "LootQualityMultiplier":                   r("rates",      "loot_quality_multiplier",                                LOOT_QUALITY_MULT),
+        "FishingLootQualityMultiplier":            r("rates",      "fishing_loot_quality_multiplier",                        FISHING_LOOT_MULT),
+        "SupplyCrateLootQualityMultiplier":        r("rates",      "supply_crate_loot_quality_multiplier",                   SUPPLY_CRATE_LOOT_MULT),
+        "GlobalSpoilingTimeMultiplier":            r("rates",      "global_spoiling_time_multiplier",                        GLOBAL_SPOILING_TIME_MULT),
+        "GlobalItemDecompositionTimeMultiplier":   r("rates",      "global_item_decomposition_time_multiplier",              GLOBAL_ITEM_DECOMP_MULT),
+        "GlobalCorpseDecompositionTimeMultiplier": r("rates",      "global_corpse_decomposition_time_multiplier",            GLOBAL_CORPSE_DECOMP_MULT),
+        "CropGrowthSpeedMultiplier":               r("rates",      "crop_growth_speed_multiplier",                           CROP_GROWTH_SPEED_MULT),
+        "FuelConsumptionIntervalMultiplier":       r("rates",      "fuel_consumption_interval_multiplier",                   FUEL_CONSUMPTION_MULT),
+        # ── Survival ──────────────────────────────────────────────────────────
+        "PlayerCharacterFoodDrainMultiplier":      r("survival",   "player_food_drain_multiplier",                           PLAYER_FOOD_DRAIN),
+        "PlayerCharacterWaterDrainMultiplier":     r("survival",   "player_water_drain_multiplier",                          PLAYER_WATER_DRAIN),
+        "PlayerCharacterStaminaDrainMultiplier":   r("survival",   "player_stamina_drain_multiplier",                        PLAYER_STAMINA_DRAIN),
+        "PlayerCharacterHealthRecoveryMultiplier": r("survival",   "player_health_recovery_multiplier",                      PLAYER_HEALTH_REGEN),
+        "DinoCharacterFoodDrainMultiplier":        r("survival",   "dino_food_drain_multiplier",                             DINO_FOOD_DRAIN),
+        "DinoCharacterHealthRecoveryMultiplier":   r("survival",   "dino_health_recovery_multiplier",                        DINO_HEALTH_REGEN),
+        # ── Combat ────────────────────────────────────────────────────────────
+        "PlayerDamageMultiplier":                  r("combat",     "player_damage_multiplier",                               PLAYER_DAMAGE_MULT),
+        "PlayerResistanceMultiplier":              r("combat",     "player_resistance_multiplier",                           PLAYER_RESISTANCE_MULT),
+        "DinoDamageMultiplier":                    r("combat",     "dino_damage_multiplier",                                 DINO_DAMAGE_MULT),
+        "DinoResistanceMultiplier":                r("combat",     "dino_resistance_multiplier",                             DINO_RESISTANCE_MULT),
+        "TamedDinoDamageMultiplier":               r("combat",     "tamed_dino_damage_multiplier",                           TAMED_DINO_DAMAGE_MULT),
+        "TamedDinoResistanceMultiplier":           r("combat",     "tamed_dino_resistance_multiplier",                       TAMED_DINO_RES_MULT),
+        "StructureDamageMultiplier":               r("combat",     "structure_damage_multiplier",                            STRUCT_DAMAGE_MULT),
+        "ShowFloatingDamageText":                  _b("combat",    "show_floating_damage_text",                              "false"),
+        "AllowHitMarkers":                         _b("combat",    "allow_hit_markers",                                      "true"),
+        # ── Breeding ──────────────────────────────────────────────────────────
+        "MatingIntervalMultiplier":                r2("breeding",  "rates","mating_interval_multiplier",                     MATING_INTERVAL_MULT),
+        "MatingSpeedMultiplier":                   r2("breeding",  "rates","mating_speed_multiplier",                        MATING_SPEED_MULT),
+        "EggHatchSpeedMultiplier":                 r2("breeding",  "rates","egg_hatch_speed_multiplier",                     EGG_HATCH_SPEED_MULT),
+        "LayEggIntervalMultiplier":                r("breeding",   "lay_egg_interval_multiplier",                            LAY_EGG_INTERVAL_MULT),
+        "BabyMatureSpeedMultiplier":               r("breeding",   "baby_mature_speed_multiplier",                           BABY_MATURE_SPEED_MULT),
+        "BabyCuddleIntervalMultiplier":            r("breeding",   "baby_cuddle_interval_multiplier",                        BABY_CUDDLE_INTERVAL_MULT),
+        "BabyCuddleGracePeriodMultiplier":         r("breeding",   "baby_cuddle_grace_period_multiplier",                    BABY_CUDDLE_GRACE_PERIOD_MULT),
+        "BabyImprintAmountMultiplier":             r("breeding",   "baby_imprint_amount_multiplier",                         BABY_IMPRINT_AMOUNT_MULT),
+        # ── Structures ────────────────────────────────────────────────────────
+        "StructurePickupTimeAfterPlacement":       r("structures", "structure_pickup_time_after_placement",                  STRUCT_PICKUP_TIME),
+        "PerPlatformMaxStructuresMultiplier":      r("structures", "per_platform_max_structures_multiplier",                 PER_PLATFORM_STRUCT),
+        # ── Flags ─────────────────────────────────────────────────────────────
+        "AlwaysAllowStructurePickup":              _b("flags",     "always_allow_structure_pickup",                          "true"),
+        "DisableStructureDecayPvE":                _b("flags",     "disable_structure_decay_pve",                            "false"),
+        "DisableDinoDecayPvE":                     _b("flags",     "disable_dino_decay_pve",                                 "false"),
+        "AllowCaveBuildingPvE":                    _b("flags",     "allow_cave_building_pve",                                "false"),
+        "AllowAnyoneBabyImprintCuddle":            _b("flags",     "allow_anyone_baby_imprint_cuddle",                       "false"),
+        "AllowFlyerCarryPvE":                      _b("flags",     "allow_flyer_carry_pve",                                  "true"),
+        "AllowFlyerSpeedLeveling":                 _b("flags",     "allow_flyer_speed_leveling",                             "false"),
+        "DisableCryoSicknessPVP":                  _b("flags",     "disable_cryo_sickness_pvp",                              "false"),
+        # bDisableCryopodEnemyCheck=True removes the powered-fridge-nearby requirement (inverted flag)
+        "bDisableCryopodEnemyCheck":               "False" if r("flags","require_powered_cryofridge","true").lower() == "true" else "True",
     }
 
     # Build a lowercase lookup so we can match ARK's own lowercase key names
@@ -444,12 +547,19 @@ def start_server(key: str) -> bool:
 
     # Re-read config fresh so settings-page changes apply without a controller restart
     _lc = _read_live_cfg()
-    def _lr(s, k, fb): return _lci(_lc, s, k, fb)
-    _max_players   = _lr("performance", "max_players",   str(MAX_PLAYERS))
-    _third_person  = _lr("flags", "allow_third_person",            "false").lower() == "true"
-    _show_map_loc  = _lr("flags", "show_map_player_location",      "true").lower()  == "true"
-    _no_dl_surv    = _lr("flags", "prevent_download_survivors",    "false").lower() == "true"
-    _no_dl_items   = _lr("flags", "prevent_download_items",        "false").lower() == "true"
+    def _lr(s, k, fb):       return _lci(_lc, s, k, fb)
+    def _lr2(s, k, fb, alt): v = _lci(_lc, s, k, None); return v if v is not None else _lci(_lc, alt, k, fb)
+
+    _max_players    = _lr2("limits",  "max_players",              str(MAX_PLAYERS),   "performance")
+    _third_person   = _lr("flags",  "allow_third_person",         "false").lower() == "true"
+    _show_map_loc   = _lr("flags",  "show_map_player_location",   "true").lower()  == "true"
+    _no_dl_surv     = _lr("flags",  "prevent_download_survivors", "false").lower() == "true"
+    _no_dl_items    = _lr("flags",  "prevent_download_items",     "false").lower() == "true"
+    _cave_flyers    = _lr("flags",  "force_allow_cave_flyers",    "false").lower() == "true"
+    _excl_join      = _lr("flags",  "exclusive_join",             "false").lower() == "true"
+    _crossplay      = _lr("mods",   "crossplay",                  "false").lower() == "true"
+    _mod_ids        = _lr("mods",   "mod_ids",                    "").strip()
+    _active_event   = _lr("world",  "active_event",               "").strip()
 
     session_name = f"{CLUSTER_NAME}_{state.cfg.display_name.replace(' ', '')}"
     map_arg = (
@@ -467,14 +577,15 @@ def start_server(key: str) -> bool:
         f"-ClusterDirOverride={CLUSTER_DIR}",
         f"-ClusterId={CLUSTER_ID}",
     ]
-    if _third_person:
-        flags.append("-AllowThirdPersonPlayer")
-    if _show_map_loc:
-        flags.append("-ShowMapPlayerLocation")
-    if _no_dl_surv:
-        flags.append("-PreventDownloadSurvivors")
-    if _no_dl_items:
-        flags.append("-PreventDownloadItems")
+    if _third_person:   flags.append("-AllowThirdPersonPlayer")
+    if _show_map_loc:   flags.append("-ShowMapPlayerLocation")
+    if _no_dl_surv:     flags.append("-PreventDownloadSurvivors")
+    if _no_dl_items:    flags.append("-PreventDownloadItems")
+    if _cave_flyers:    flags.append("-ForceAllowCaveFlyers")
+    if _excl_join:      flags.append("-exclusivejoin")
+    if _crossplay:      flags.append("-crossplay")
+    if _mod_ids:        flags.append(f"-GameModIds={_mod_ids}")
+    if _active_event:   flags.append(f"-ActiveEvent={_active_event}")
 
     log(f"Starting {key}")
     subprocess.Popen(

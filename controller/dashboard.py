@@ -1245,75 +1245,143 @@ input::placeholder { color:#3d4a62; }
 <script>
 const SCHEMA = [
   { group:'Cluster', sections:[
-    { title:'Cluster', fields:[
-      {s:'cluster',k:'cluster_name',  label:'Cluster Name',   ph:'e.g. MyCluster'},
-      {s:'cluster',k:'rcon_password', label:'RCON Password',  ph:'e.g. ChangeMe123'},
-      {s:'cluster',k:'default_map',   label:'Default Map',    ph:'ragnarok'},
-      {s:'network', k:'rcon_host',    label:'RCON Host',      ph:'127.0.0.1'},
+    { title:'Identity', fields:[
+      {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'e.g. MyCluster'},
+      {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'e.g. ChangeMe123'},
+      {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
+      {s:'network',    k:'rcon_host',      label:'RCON Host',      ph:'127.0.0.1'},
     ]},
     { title:'Paths', fields:[
-      {s:'paths',k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',                wide:true},
-      {s:'paths',k:'cluster_dir',   label:'Cluster Dir',   ph:'C:\\ASA_Cluster\\asa_server\\cluster',       wide:true},
-      {s:'paths',k:'steamcmd_path', label:'SteamCMD Path', ph:'C:\\ASA_Cluster\\SteamCMD\\steamcmd.exe',   wide:true},
+      {s:'paths', k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',              wide:true},
+      {s:'paths', k:'cluster_dir',   label:'Cluster Dir',   ph:'C:\\ASA_Cluster\\asa_server\\cluster',     wide:true},
+      {s:'paths', k:'steamcmd_path', label:'SteamCMD Path', ph:'C:\\ASA_Cluster\\SteamCMD\\steamcmd.exe', wide:true},
+    ]},
+    { title:'Mods & Events', fields:[
+      {s:'mods',  k:'mod_ids',      label:'Mod IDs (comma-separated Steam IDs)', ph:'e.g. 12345,67890', wide:true},
+      {s:'mods',  k:'crossplay',    label:'Enable Crossplay (Epic + Steam)',      ph:'false'},
+      {s:'world', k:'active_event', label:'Active Event',                         ph:'e.g. FearEvolved, WinterWonderland, TurkeyTrial'},
     ]},
   ]},
-  { group:'Performance', sections:[
-    { title:'General', grid:true, fields:[
-      {s:'performance',k:'max_active_servers',label:'Max Active Servers', ph:'3'},
-      {s:'performance',k:'max_players',       label:'Max Players',        ph:'70'},
-      {s:'timers',     k:'poll_seconds',      label:'Poll Interval (s)',  ph:'5'},
+  { group:'Server', sections:[
+    { title:'Limits', grid:true, fields:[
+      {s:'limits', k:'max_active_servers',     label:'Max Active Maps',        ph:'3'},
+      {s:'limits', k:'max_players',            label:'Max Players per Map',    ph:'70'},
+      {s:'limits', k:'max_tamed_dinos',        label:'Max Tamed Dinos (total)',ph:'5000'},
+      {s:'limits', k:'max_personal_tamed_dinos',label:'Max Tamed (per player)',ph:'40'},
+    ]},
+    { title:'Schedule', grid:true, fields:[
+      {s:'schedule', k:'poll_seconds',            label:'Poll Interval (s)',      ph:'5'},
+      {s:'schedule', k:'restart_time',            label:'Daily Restart (HH:MM)',  ph:'06:00'},
+      {s:'schedule', k:'check_updates_on_startup',label:'Check Updates on Start', ph:'true'},
     ]},
     { title:'Timers', grid:true, fields:[
-      {s:'timers',k:'map_shutdown_minutes',         label:'Empty Map Shutdown (min)',  ph:'15'},
-      {s:'timers',k:'autosave_minutes',             label:'Autosave Interval (min)',   ph:'15'},
-      {s:'timers',k:'cluster_shutdown_minutes',     label:'Cluster Shutdown Warn (min)', ph:'30'},
-      {s:'timers',k:'startup_grace_minutes',        label:'Startup Grace (min)',       ph:'15'},
-      {s:'timers',k:'server_start_timeout_seconds', label:'Start Timeout (s)',         ph:'300'},
-      {s:'timers',k:'save_before_exit_seconds',     label:'Save Before Exit (s)',      ph:'10'},
-      {s:'timers',k:'post_shutdown_wait_seconds',   label:'Post-Shutdown Wait (s)',    ph:'30'},
-      {s:'timers',k:'crash_detection_threshold',    label:'Crash Threshold',           ph:'5'},
+      {s:'timers', k:'map_shutdown_minutes',         label:'Empty Map Shutdown (min)',    ph:'15'},
+      {s:'timers', k:'autosave_minutes',             label:'Autosave Interval (min)',     ph:'15'},
+      {s:'timers', k:'startup_grace_minutes',        label:'Startup Grace (min)',         ph:'15'},
+      {s:'timers', k:'cluster_shutdown_minutes',     label:'Cluster Shutdown Warn (min)', ph:'30'},
+      {s:'timers', k:'server_start_timeout_seconds', label:'Start Timeout (s)',           ph:'300'},
+      {s:'timers', k:'save_before_exit_seconds',     label:'Save Before Exit (s)',        ph:'10'},
+      {s:'timers', k:'post_shutdown_wait_seconds',   label:'Post-Shutdown Wait (s)',      ph:'30'},
+      {s:'timers', k:'crash_detection_threshold',    label:'Crash Threshold',             ph:'5'},
     ]},
-    { title:'Schedule & Backup', grid:true, fields:[
-      {s:'schedule',k:'restart_time',             label:'Daily Restart (HH:MM)',   ph:'06:00'},
-      {s:'schedule',k:'check_updates_on_startup', label:'Check Updates on Start',  ph:'true'},
-      {s:'backup',  k:'backup_dir',               label:'Backup Directory', ph:'C:\\ASA_Cluster\\backups', wide:true},
-      {s:'backup',  k:'max_backups',              label:'Max Backups',              ph:'10'},
+    { title:'Backup', grid:true, fields:[
+      {s:'backup', k:'backup_dir',   label:'Backup Directory', ph:'C:\\ASA_Cluster\\backups', wide:true},
+      {s:'backup', k:'max_backups',  label:'Max Backups',       ph:'10'},
     ]},
   ]},
-  { group:'Rates', sections:[
-    { title:'Game Rates', grid3:true, fields:[
-      {s:'rates',k:'xp_multiplier',              label:'XP',               ph:'1.0'},
-      {s:'rates',k:'taming_speed_multiplier',    label:'Taming Speed',     ph:'1.0'},
-      {s:'rates',k:'harvest_amount_multiplier',  label:'Harvest Amount',   ph:'1.0'},
-      {s:'rates',k:'difficulty_offset',          label:'Difficulty Offset',ph:'1.0  (max lvl 150)'},
-      {s:'rates',k:'mating_interval_multiplier', label:'Mating Interval',  ph:'1.0'},
-      {s:'rates',k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0'},
-      {s:'rates',k:'global_spoiling_time_multiplier',             label:'Spoiling Time', ph:'1.0'},
-      {s:'rates',k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',   ph:'1.0'},
-      {s:'rates',k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp', ph:'1.0'},
-      {s:'rates',k:'crop_growth_speed_multiplier',                label:'Crop Growth',   ph:'1.0'},
-      {s:'rates',k:'mating_speed_multiplier',                     label:'Mating Speed',  ph:'1.0'},
-      {s:'rates',k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption', ph:'1.0'},
+  { group:'World & Rates', sections:[
+    { title:'World', grid:true, fields:[
+      {s:'world', k:'day_time_speed_scale',               label:'Day Speed',                ph:'1.0'},
+      {s:'world', k:'night_time_speed_scale',             label:'Night Speed',              ph:'1.0'},
+      {s:'world', k:'dino_count_multiplier',              label:'Wild Dino Count',          ph:'1.0'},
+      {s:'world', k:'resources_respawn_period_multiplier',label:'Resources Respawn',        ph:'1.0'},
     ]},
-    { title:'Breeding', grid:true, fields:[
-      {s:'breeding',k:'baby_mature_speed_multiplier',        label:'Mature Speed',        ph:'1.0'},
-      {s:'breeding',k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval',     ph:'1.8 ÷ mature speed', rec:'interval'},
-      {s:'breeding',k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period', ph:'max(5.0, mature÷10)', rec:'grace'},
-      {s:'breeding',k:'baby_imprint_amount_multiplier',      label:'Imprint Amount',      ph:'20.0',               rec:'imprint'},
+    { title:'Experience & Gathering', grid3:true, fields:[
+      {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0'},
+      {s:'rates', k:'harvest_amount_multiplier', label:'Harvest Amount',   ph:'1.0'},
+      {s:'rates', k:'taming_speed_multiplier',   label:'Taming Speed',     ph:'1.0'},
+      {s:'rates', k:'difficulty_offset',         label:'Difficulty Offset',ph:'1.0  (max lvl 150)'},
+      {s:'rates', k:'item_stack_size_multiplier',label:'Item Stack Size',  ph:'1.0'},
+      {s:'rates', k:'crop_growth_speed_multiplier',label:'Crop Growth',    ph:'1.0'},
+    ]},
+    { title:'Loot Quality', grid3:true, fields:[
+      {s:'rates', k:'loot_quality_multiplier',               label:'General Loot',    ph:'1.0'},
+      {s:'rates', k:'fishing_loot_quality_multiplier',       label:'Fishing Loot',    ph:'1.0'},
+      {s:'rates', k:'supply_crate_loot_quality_multiplier',  label:'Supply Crate',    ph:'1.0'},
+    ]},
+    { title:'Decay & Fuel', grid3:true, fields:[
+      {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0'},
+      {s:'rates', k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',     ph:'1.0'},
+      {s:'rates', k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp',   ph:'1.0'},
+      {s:'rates', k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption',ph:'1.0'},
+    ]},
+  ]},
+  { group:'Survival', sections:[
+    { title:'Player Stats', grid:true, fields:[
+      {s:'survival', k:'player_food_drain_multiplier',      label:'Food Drain',     ph:'1.0'},
+      {s:'survival', k:'player_water_drain_multiplier',     label:'Water Drain',    ph:'1.0'},
+      {s:'survival', k:'player_stamina_drain_multiplier',   label:'Stamina Drain',  ph:'1.0'},
+      {s:'survival', k:'player_health_recovery_multiplier', label:'Health Regen',   ph:'1.0'},
+    ]},
+    { title:'Dino Stats', grid:true, fields:[
+      {s:'survival', k:'dino_food_drain_multiplier',        label:'Dino Food Drain',  ph:'1.0'},
+      {s:'survival', k:'dino_health_recovery_multiplier',   label:'Dino Health Regen',ph:'1.0'},
+    ]},
+    { title:'Combat', grid:true, fields:[
+      {s:'combat', k:'player_damage_multiplier',        label:'Player Damage',         ph:'1.0'},
+      {s:'combat', k:'player_resistance_multiplier',    label:'Player Resistance',     ph:'1.0'},
+      {s:'combat', k:'dino_damage_multiplier',          label:'Wild Dino Damage',      ph:'1.0'},
+      {s:'combat', k:'dino_resistance_multiplier',      label:'Wild Dino Resistance',  ph:'1.0'},
+      {s:'combat', k:'tamed_dino_damage_multiplier',    label:'Tamed Dino Damage',     ph:'1.0'},
+      {s:'combat', k:'tamed_dino_resistance_multiplier',label:'Tamed Dino Resistance', ph:'1.0'},
+      {s:'combat', k:'structure_damage_multiplier',     label:'Structure Damage',      ph:'1.0'},
+    ]},
+    { title:'Structures', grid:true, fields:[
+      {s:'structures', k:'structure_pickup_time_after_placement',    label:'Pickup Time After Place (s)',   ph:'30'},
+      {s:'structures', k:'per_platform_max_structures_multiplier',   label:'Platform Saddle Struct Mult',   ph:'1.0'},
+    ]},
+  ]},
+  { group:'Breeding', sections:[
+    { title:'Mating & Hatching', grid:true, fields:[
+      {s:'breeding', k:'mating_interval_multiplier', label:'Mating Interval',  ph:'1.0'},
+      {s:'breeding', k:'mating_speed_multiplier',    label:'Mating Speed',     ph:'1.0'},
+      {s:'breeding', k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0'},
+      {s:'breeding', k:'lay_egg_interval_multiplier',label:'Lay Egg Interval', ph:'1.0'},
+    ]},
+    { title:'Raising & Imprinting', grid:true, fields:[
+      {s:'breeding', k:'baby_mature_speed_multiplier',        label:'Mature Speed',        ph:'1.0'},
+      {s:'breeding', k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval',     ph:'1.8 ÷ mature speed', rec:'interval'},
+      {s:'breeding', k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period', ph:'max(5.0, mature÷10)', rec:'grace'},
+      {s:'breeding', k:'baby_imprint_amount_multiplier',      label:'Imprint Amount',      ph:'20.0',               rec:'imprint'},
     ]},
   ]},
   { group:'Flags', sections:[
-    { title:'Server Flags', grid:true, fields:[
-      {s:'flags',k:'allow_third_person',              label:'Allow Third Person',              ph:'true'},
-      {s:'flags',k:'show_map_player_location',        label:'Show Map Player Location',        ph:'true'},
-      {s:'flags',k:'always_allow_structure_pickup',   label:'Always Allow Structure Pickup',   ph:'true'},
-      {s:'flags',k:'disable_structure_decay_pve',     label:'Disable Structure Decay PvE',     ph:'false'},
-      {s:'flags',k:'allow_cave_building_pve',         label:'Allow Cave Building PvE',         ph:'false'},
-      {s:'flags',k:'allow_anyone_baby_imprint_cuddle',label:'Anyone Can Imprint Cuddle',       ph:'true'},
-      {s:'flags',k:'allow_flyer_carry_pve',           label:'Allow Flyer Carry PvE',           ph:'true'},
-      {s:'flags',k:'prevent_download_survivors',      label:'Prevent Download Survivors',      ph:'false'},
-      {s:'flags',k:'prevent_download_items',          label:'Prevent Download Items',          ph:'false'},
-      {s:'flags',k:'require_powered_cryofridge',      label:'Require Powered Cryofridge (to deploy pods)', ph:'true'},
+    { title:'Player & Camera', grid:true, fields:[
+      {s:'flags', k:'allow_third_person',     label:'Allow Third Person',        ph:'false'},
+      {s:'flags', k:'show_map_player_location',label:'Show Map Player Location', ph:'true'},
+      {s:'combat', k:'allow_hit_markers',       label:'Allow Hit Markers',        ph:'true'},
+      {s:'combat', k:'show_floating_damage_text',label:'Floating Damage Numbers', ph:'false'},
+    ]},
+    { title:'Structures & Decay', grid:true, fields:[
+      {s:'flags', k:'always_allow_structure_pickup', label:'Always Allow Structure Pickup', ph:'true'},
+      {s:'flags', k:'disable_structure_decay_pve',   label:'Disable Structure Decay PvE',  ph:'false'},
+      {s:'flags', k:'disable_dino_decay_pve',        label:'Disable Dino Decay PvE',       ph:'false'},
+      {s:'flags', k:'allow_cave_building_pve',       label:'Allow Cave Building PvE',      ph:'false'},
+      {s:'flags', k:'force_allow_cave_flyers',       label:'Force Allow Cave Flyers',      ph:'false'},
+    ]},
+    { title:'Dinos', grid:true, fields:[
+      {s:'flags', k:'allow_flyer_carry_pve',      label:'Allow Flyer Carry PvE',      ph:'true'},
+      {s:'flags', k:'allow_flyer_speed_leveling', label:'Allow Flyer Speed Leveling', ph:'false'},
+    ]},
+    { title:'Breeding', grid:true, fields:[
+      {s:'flags', k:'allow_anyone_baby_imprint_cuddle',label:'Anyone Can Imprint Cuddle', ph:'false'},
+      {s:'flags', k:'require_powered_cryofridge',      label:'Require Powered Cryofridge',ph:'true'},
+      {s:'flags', k:'disable_cryo_sickness_pvp',       label:'Disable Cryo Sickness PvP', ph:'false'},
+    ]},
+    { title:'Downloads & Access', grid:true, fields:[
+      {s:'flags', k:'prevent_download_survivors',label:'Prevent Download Survivors', ph:'false'},
+      {s:'flags', k:'prevent_download_items',    label:'Prevent Download Items',     ph:'false'},
+      {s:'flags', k:'exclusive_join',            label:'Whitelist Only (Exclusive Join)', ph:'false'},
     ]},
   ]},
 ];
