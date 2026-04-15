@@ -315,63 +315,114 @@ def _lci(c: configparser.RawConfigParser, section: str, key: str, fallback: str)
 
 
 def _patch_game_user_settings() -> None:
-    """Write controlled settings from config.ini into GameUserSettings.ini before server launch."""
+    """Write controlled settings from config.ini into GameUserSettings.ini before server launch.
+
+    Uses a line-by-line rewriter instead of configparser so that:
+    - Keys are matched case-insensitively (ARK writes lowercase; we use CamelCase)
+    - Values are written as key=value with no spaces (ARK's native format)
+    - Duplicate lowercase keys left by ARK are replaced, not appended
+    """
     settings_path = os.path.join(
         SERVER_ROOT, "ShooterGame", "Saved", "Config", "WindowsServer", "GameUserSettings.ini"
     )
     os.makedirs(os.path.dirname(settings_path), exist_ok=True)
 
-    # Read config fresh so dashboard edits take effect without a controller restart
+    # Re-read config fresh so dashboard edits take effect without a controller restart
     c = _read_live_cfg()
     def r(s, k, fb): return _lci(c, s, k, fb)
-
-    gus = configparser.RawConfigParser(strict=False)
-    gus.optionxform = str  # preserve key casing
-    if os.path.exists(settings_path):
-        gus.read(settings_path, encoding="utf-8")
-
-    if not gus.has_section("ServerSettings"):
-        gus.add_section("ServerSettings")
-
     def _b(s, k, fb): return "True" if r(s, k, fb).lower() == "true" else "False"
 
     desired = {
-        "MaxPlayers":                            r("performance", "max_players",                            str(MAX_PLAYERS)),
-        "XPMultiplier":                          r("rates",       "xp_multiplier",                         XP_MULTIPLIER),
-        "TamingSpeedMultiplier":                 r("rates",       "taming_speed_multiplier",                TAMING_SPEED_MULTIPLIER),
-        "HarvestAmountMultiplier":               r("rates",       "harvest_amount_multiplier",              HARVEST_AMOUNT_MULTIPLIER),
-        "DifficultyOffset":                      r("rates",       "difficulty_offset",                      DIFFICULTY_OFFSET),
-        "MatingIntervalMultiplier":              r("rates",       "mating_interval_multiplier",             MATING_INTERVAL_MULT),
-        "EggHatchSpeedMultiplier":               r("rates",       "egg_hatch_speed_multiplier",             EGG_HATCH_SPEED_MULT),
-        "GlobalSpoilingTimeMultiplier":          r("rates",       "global_spoiling_time_multiplier",        GLOBAL_SPOILING_TIME_MULT),
-        "GlobalItemDecompositionTimeMultiplier": r("rates",       "global_item_decomposition_time_multiplier", GLOBAL_ITEM_DECOMP_MULT),
-        "GlobalCorpseDecompositionTimeMultiplier": r("rates",     "global_corpse_decomposition_time_multiplier", GLOBAL_CORPSE_DECOMP_MULT),
-        "CropGrowthSpeedMultiplier":             r("rates",       "crop_growth_speed_multiplier",           CROP_GROWTH_SPEED_MULT),
-        "MatingSpeedMultiplier":                 r("rates",       "mating_speed_multiplier",                MATING_SPEED_MULT),
-        "FuelConsumptionIntervalMultiplier":     r("rates",       "fuel_consumption_interval_multiplier",   FUEL_CONSUMPTION_MULT),
-        "AlwaysAllowStructurePickup":            _b("flags", "always_allow_structure_pickup",   "true"),
-        "DisableStructureDecayPvE":              _b("flags", "disable_structure_decay_pve",     "false"),
-        "AllowCaveBuildingPvE":                  _b("flags", "allow_cave_building_pve",         "false"),
-        "AllowAnyoneBabyImprintCuddle":          _b("flags", "allow_anyone_baby_imprint_cuddle","false"),
-        "AllowFlyerCarryPvE":                    _b("flags", "allow_flyer_carry_pve",           "true"),
-        "BabyMatureSpeedMultiplier":             r("breeding", "baby_mature_speed_multiplier",           BABY_MATURE_SPEED_MULT),
-        "BabyCuddleIntervalMultiplier":          r("breeding", "baby_cuddle_interval_multiplier",        BABY_CUDDLE_INTERVAL_MULT),
-        "BabyCuddleGracePeriodMultiplier":       r("breeding", "baby_cuddle_grace_period_multiplier",    BABY_CUDDLE_GRACE_PERIOD_MULT),
-        "BabyImprintAmountMultiplier":           r("breeding", "baby_imprint_amount_multiplier",         BABY_IMPRINT_AMOUNT_MULT),
+        "MaxPlayers":                              r("performance", "max_players",                               str(MAX_PLAYERS)),
+        "XPMultiplier":                            r("rates",       "xp_multiplier",                            XP_MULTIPLIER),
+        "TamingSpeedMultiplier":                   r("rates",       "taming_speed_multiplier",                  TAMING_SPEED_MULTIPLIER),
+        "HarvestAmountMultiplier":                 r("rates",       "harvest_amount_multiplier",                HARVEST_AMOUNT_MULTIPLIER),
+        "DifficultyOffset":                        r("rates",       "difficulty_offset",                        DIFFICULTY_OFFSET),
+        "MatingIntervalMultiplier":                r("rates",       "mating_interval_multiplier",               MATING_INTERVAL_MULT),
+        "EggHatchSpeedMultiplier":                 r("rates",       "egg_hatch_speed_multiplier",               EGG_HATCH_SPEED_MULT),
+        "GlobalSpoilingTimeMultiplier":            r("rates",       "global_spoiling_time_multiplier",          GLOBAL_SPOILING_TIME_MULT),
+        "GlobalItemDecompositionTimeMultiplier":   r("rates",       "global_item_decomposition_time_multiplier",GLOBAL_ITEM_DECOMP_MULT),
+        "GlobalCorpseDecompositionTimeMultiplier": r("rates",       "global_corpse_decomposition_time_multiplier", GLOBAL_CORPSE_DECOMP_MULT),
+        "CropGrowthSpeedMultiplier":               r("rates",       "crop_growth_speed_multiplier",             CROP_GROWTH_SPEED_MULT),
+        "MatingSpeedMultiplier":                   r("rates",       "mating_speed_multiplier",                  MATING_SPEED_MULT),
+        "FuelConsumptionIntervalMultiplier":       r("rates",       "fuel_consumption_interval_multiplier",     FUEL_CONSUMPTION_MULT),
+        "AlwaysAllowStructurePickup":              _b("flags",      "always_allow_structure_pickup",            "true"),
+        "DisableStructureDecayPvE":                _b("flags",      "disable_structure_decay_pve",              "false"),
+        "AllowCaveBuildingPvE":                    _b("flags",      "allow_cave_building_pve",                  "false"),
+        "AllowAnyoneBabyImprintCuddle":            _b("flags",      "allow_anyone_baby_imprint_cuddle",         "false"),
+        "AllowFlyerCarryPvE":                      _b("flags",      "allow_flyer_carry_pve",                    "true"),
+        "BabyMatureSpeedMultiplier":               r("breeding",    "baby_mature_speed_multiplier",             BABY_MATURE_SPEED_MULT),
+        "BabyCuddleIntervalMultiplier":            r("breeding",    "baby_cuddle_interval_multiplier",          BABY_CUDDLE_INTERVAL_MULT),
+        "BabyCuddleGracePeriodMultiplier":         r("breeding",    "baby_cuddle_grace_period_multiplier",      BABY_CUDDLE_GRACE_PERIOD_MULT),
+        "BabyImprintAmountMultiplier":             r("breeding",    "baby_imprint_amount_multiplier",           BABY_IMPRINT_AMOUNT_MULT),
     }
 
-    changed = []
-    for key, value in desired.items():
-        if gus.get("ServerSettings", key, fallback=None) != value:
-            gus.set("ServerSettings", key, value)
-            changed.append(f"{key}={value}")
+    # Build a lowercase lookup so we can match ARK's own lowercase key names
+    desired_lower = {k.lower(): (k, v) for k, v in desired.items()}
 
-    if not changed:
+    # ── Read existing file ─────────────────────────────────────────────────────
+    if os.path.exists(settings_path):
+        with open(settings_path, "r", encoding="utf-8") as f:
+            orig_lines = f.readlines()
+    else:
+        orig_lines = ["[ServerSettings]\n"]
+
+    # ── Rewrite line-by-line, replacing keys case-insensitively ───────────────
+    in_ss       = False          # are we inside [ServerSettings]?
+    seen        = set()          # lowercase keys already written
+    result      = []
+
+    for line in orig_lines:
+        stripped = line.strip()
+
+        # Section header?
+        if stripped.startswith("["):
+            if in_ss:
+                # Leaving [ServerSettings] — flush any keys not yet seen
+                for lk, (ck, val) in desired_lower.items():
+                    if lk not in seen:
+                        result.append(f"{ck}={val}\n")
+                        seen.add(lk)
+            in_ss = stripped.lower() == "[serversettings]"
+            result.append(line)
+            continue
+
+        # Inside [ServerSettings] and looks like a key=value line?
+        if in_ss and "=" in stripped and not stripped.startswith(";"):
+            key_part = stripped.split("=", 1)[0].strip().lower()
+            if key_part in desired_lower:
+                ck, val = desired_lower[key_part]
+                if key_part not in seen:          # write once; skip duplicates
+                    result.append(f"{ck}={val}\n")
+                    seen.add(key_part)
+                continue                          # drop original line
+            # Unmanaged key — keep as-is
+            result.append(line)
+        else:
+            result.append(line)
+
+    # If we reached EOF still inside [ServerSettings] (or it was the last section)
+    if in_ss:
+        for lk, (ck, val) in desired_lower.items():
+            if lk not in seen:
+                result.append(f"{ck}={val}\n")
+                seen.add(lk)
+
+    # If [ServerSettings] was never found at all, append it
+    if not seen:
+        result.append("\n[ServerSettings]\n")
+        for ck, val in desired.items():
+            result.append(f"{ck}={val}\n")
+
+    # ── Write only if content changed ─────────────────────────────────────────
+    new_text = "".join(result)
+    old_text  = "".join(orig_lines)
+    if new_text == old_text:
         return
 
     with open(settings_path, "w", encoding="utf-8") as f:
-        gus.write(f)
-    log(f"GameUserSettings.ini updated: {', '.join(changed)}")
+        f.write(new_text)
+    log(f"GameUserSettings.ini patched ({settings_path})")
 
 
 def start_server(key: str) -> bool:
