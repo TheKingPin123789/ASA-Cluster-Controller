@@ -96,6 +96,7 @@ FLAG_ANYONE_IMPRINT         = _ci("flags", "allow_anyone_baby_imprint_cuddle","f
 FLAG_FLYER_CARRY            = _ci("flags", "allow_flyer_carry_pve",           "true").lower()  == "true"
 FLAG_NO_DL_SURVIVORS        = _ci("flags", "prevent_download_survivors",      "false").lower() == "true"
 FLAG_NO_DL_ITEMS            = _ci("flags", "prevent_download_items",          "false").lower() == "true"
+FLAG_REQUIRE_CRYOFRIDGE     = _ci("flags", "require_powered_cryofridge",      "true").lower()  == "true"
 
 SHOULD_EXIT    = False
 LAST_SUMMARY_LINE = None
@@ -351,6 +352,10 @@ def _patch_game_user_settings() -> None:
         "AllowCaveBuildingPvE":                    _b("flags",      "allow_cave_building_pve",                  "false"),
         "AllowAnyoneBabyImprintCuddle":            _b("flags",      "allow_anyone_baby_imprint_cuddle",         "false"),
         "AllowFlyerCarryPvE":                      _b("flags",      "allow_flyer_carry_pve",                    "true"),
+        # bDisableCryopodEnemyCheck=True removes the powered-fridge-nearby requirement.
+        # We invert: require_powered_cryofridge=true  → DisableCryopodEnemyCheck=False
+        #            require_powered_cryofridge=false → DisableCryopodEnemyCheck=True
+        "bDisableCryopodEnemyCheck":               "False" if r("flags", "require_powered_cryofridge", "true").lower() == "true" else "True",
         "BabyMatureSpeedMultiplier":               r("breeding",    "baby_mature_speed_multiplier",             BABY_MATURE_SPEED_MULT),
         "BabyCuddleIntervalMultiplier":            r("breeding",    "baby_cuddle_interval_multiplier",          BABY_CUDDLE_INTERVAL_MULT),
         "BabyCuddleGracePeriodMultiplier":         r("breeding",    "baby_cuddle_grace_period_multiplier",      BABY_CUDDLE_GRACE_PERIOD_MULT),

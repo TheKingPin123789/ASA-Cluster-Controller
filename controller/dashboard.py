@@ -1313,6 +1313,7 @@ const SCHEMA = [
       {s:'flags',k:'allow_flyer_carry_pve',           label:'Allow Flyer Carry PvE',           ph:'true'},
       {s:'flags',k:'prevent_download_survivors',      label:'Prevent Download Survivors',      ph:'false'},
       {s:'flags',k:'prevent_download_items',          label:'Prevent Download Items',          ph:'false'},
+      {s:'flags',k:'require_powered_cryofridge',      label:'Require Powered Cryofridge (to deploy pods)', ph:'true'},
     ]},
   ]},
 ];

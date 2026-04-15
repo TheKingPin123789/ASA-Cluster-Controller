@@ -74,6 +74,10 @@ def _patch_game_user_settings(cfg: configparser.ConfigParser, server_root: str) 
         "AllowCaveBuildingPvE":                    _b("flags",      "allow_cave_building_pve",                  "false"),
         "AllowAnyoneBabyImprintCuddle":            _b("flags",      "allow_anyone_baby_imprint_cuddle",         "false"),
         "AllowFlyerCarryPvE":                      _b("flags",      "allow_flyer_carry_pve",                    "true"),
+        # bDisableCryopodEnemyCheck=True removes the powered-fridge-nearby requirement.
+        # Inverted: require_powered_cryofridge=true  → bDisableCryopodEnemyCheck=False
+        #           require_powered_cryofridge=false → bDisableCryopodEnemyCheck=True
+        "bDisableCryopodEnemyCheck":               "False" if r("flags", "require_powered_cryofridge", "true").lower() == "true" else "True",
         "BabyMatureSpeedMultiplier":               r("breeding",    "baby_mature_speed_multiplier",             "1.0"),
         "BabyCuddleIntervalMultiplier":            r("breeding",    "baby_cuddle_interval_multiplier",          "1.0"),
         "BabyCuddleGracePeriodMultiplier":         r("breeding",    "baby_cuddle_grace_period_multiplier",      "1.0"),
