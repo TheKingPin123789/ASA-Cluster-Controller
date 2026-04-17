@@ -1300,50 +1300,50 @@ const SCHEMA = [
   ]},
   { group:'World & Rates', sections:[
     { title:'World', grid:true, fields:[
-      {s:'world', k:'day_time_speed_scale',               label:'Day Speed',                ph:'1.0'},
-      {s:'world', k:'night_time_speed_scale',             label:'Night Speed',              ph:'1.0'},
-      {s:'world', k:'dino_count_multiplier',              label:'Wild Dino Count',          ph:'1.0'},
-      {s:'world', k:'resources_respawn_period_multiplier',label:'Resources Respawn',        ph:'1.0'},
+      {s:'world', k:'day_time_speed_scale',               label:'Day Speed',                ph:'1.0',  hint:'✦ Rec: 1.0 — vanilla day length'},
+      {s:'world', k:'night_time_speed_scale',             label:'Night Speed',              ph:'1.0',  hint:'✦ Rec: 3.0 — shorter nights'},
+      {s:'world', k:'dino_count_multiplier',              label:'Wild Dino Count',          ph:'1.0',  hint:'✦ Rec: 1.0–1.5 — more wildlife'},
+      {s:'world', k:'resources_respawn_period_multiplier',label:'Resources Respawn',        ph:'1.0',  hint:'✦ Rec: 0.5 — faster respawn (lower = quicker)'},
     ]},
     { title:'Experience & Gathering', grid3:true, fields:[
-      {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0'},
-      {s:'rates', k:'harvest_amount_multiplier', label:'Harvest Amount',   ph:'1.0'},
-      {s:'rates', k:'taming_speed_multiplier',   label:'Taming Speed',     ph:'1.0'},
-      {s:'rates', k:'difficulty_offset',         label:'Difficulty Offset',ph:'1.0  (max lvl 150)'},
-      {s:'rates', k:'item_stack_size_multiplier',label:'Item Stack Size',  ph:'1.0'},
-      {s:'rates', k:'crop_growth_speed_multiplier',label:'Crop Growth',    ph:'1.0'},
+      {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0',               hint:'✦ Rec: 3.0 — less grind'},
+      {s:'rates', k:'harvest_amount_multiplier', label:'Harvest Amount',   ph:'1.0',               hint:'✦ Rec: 5.0 — less farming'},
+      {s:'rates', k:'taming_speed_multiplier',   label:'Taming Speed',     ph:'1.0',               hint:'✦ Rec: 10.0 — reasonable tame times'},
+      {s:'rates', k:'difficulty_offset',         label:'Difficulty Offset',ph:'1.0  (max lvl 150)',hint:'✦ Rec: 1.0 — enables max lvl 150 dinos'},
+      {s:'rates', k:'item_stack_size_multiplier',label:'Item Stack Size',  ph:'1.0',               hint:'✦ Rec: 5.0 — less inventory juggling'},
+      {s:'rates', k:'crop_growth_speed_multiplier',label:'Crop Growth',    ph:'1.0',               hint:'✦ Rec: 5.0 — faster crops'},
     ]},
     { title:'Loot Quality', grid3:true, fields:[
-      {s:'rates', k:'loot_quality_multiplier',               label:'General Loot',    ph:'1.0'},
-      {s:'rates', k:'fishing_loot_quality_multiplier',       label:'Fishing Loot',    ph:'1.0'},
-      {s:'rates', k:'supply_crate_loot_quality_multiplier',  label:'Supply Crate',    ph:'1.0'},
+      {s:'rates', k:'loot_quality_multiplier',               label:'General Loot',    ph:'1.0', hint:'✦ Rec: 3.0 — better drops'},
+      {s:'rates', k:'fishing_loot_quality_multiplier',       label:'Fishing Loot',    ph:'1.0', hint:'✦ Rec: 3.0 — worth fishing'},
+      {s:'rates', k:'supply_crate_loot_quality_multiplier',  label:'Supply Crate',    ph:'1.0', hint:'✦ Rec: 3.0 — rewarding drops'},
     ]},
     { title:'Decay & Fuel', grid3:true, fields:[
-      {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0'},
-      {s:'rates', k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',     ph:'1.0'},
-      {s:'rates', k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp',   ph:'1.0'},
-      {s:'rates', k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption',ph:'1.0'},
+      {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0', hint:'✦ Rec: 3.0 — less food waste stress'},
+      {s:'rates', k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',     ph:'1.0', hint:'✦ Rec: 5.0 — items persist longer'},
+      {s:'rates', k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp',   ph:'1.0', hint:'✦ Rec: 3.0 — more time to loot'},
+      {s:'rates', k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption',ph:'1.0', hint:'✦ Rec: 5.0 — less refuelling'},
     ]},
   ]},
   { group:'Survival', sections:[
     { title:'Player Stats', grid:true, fields:[
-      {s:'survival', k:'player_food_drain_multiplier',      label:'Food Drain',     ph:'1.0'},
-      {s:'survival', k:'player_water_drain_multiplier',     label:'Water Drain',    ph:'1.0'},
-      {s:'survival', k:'player_stamina_drain_multiplier',   label:'Stamina Drain',  ph:'1.0'},
-      {s:'survival', k:'player_health_recovery_multiplier', label:'Health Regen',   ph:'1.0'},
+      {s:'survival', k:'player_food_drain_multiplier',      label:'Food Drain',     ph:'1.0', hint:'✦ Rec: 0.5 — less hungry'},
+      {s:'survival', k:'player_water_drain_multiplier',     label:'Water Drain',    ph:'1.0', hint:'✦ Rec: 0.5 — less thirsty'},
+      {s:'survival', k:'player_stamina_drain_multiplier',   label:'Stamina Drain',  ph:'1.0', hint:'✦ Rec: 0.7 — less tiring'},
+      {s:'survival', k:'player_health_recovery_multiplier', label:'Health Regen',   ph:'1.0', hint:'✦ Rec: 2.0 — faster recovery'},
     ]},
     { title:'Dino Stats', grid:true, fields:[
-      {s:'survival', k:'dino_food_drain_multiplier',        label:'Dino Food Drain',  ph:'1.0'},
-      {s:'survival', k:'dino_health_recovery_multiplier',   label:'Dino Health Regen',ph:'1.0'},
+      {s:'survival', k:'dino_food_drain_multiplier',        label:'Dino Food Drain',  ph:'1.0', hint:'✦ Rec: 0.5 — dinos eat less often'},
+      {s:'survival', k:'dino_health_recovery_multiplier',   label:'Dino Health Regen',ph:'1.0', hint:'✦ Rec: 2.0 — dinos recover faster'},
     ]},
     { title:'Combat', grid:true, fields:[
-      {s:'combat', k:'player_damage_multiplier',        label:'Player Damage',         ph:'1.0'},
-      {s:'combat', k:'player_resistance_multiplier',    label:'Player Resistance',     ph:'1.0'},
-      {s:'combat', k:'dino_damage_multiplier',          label:'Wild Dino Damage',      ph:'1.0'},
-      {s:'combat', k:'dino_resistance_multiplier',      label:'Wild Dino Resistance',  ph:'1.0'},
-      {s:'combat', k:'tamed_dino_damage_multiplier',    label:'Tamed Dino Damage',     ph:'1.0'},
-      {s:'combat', k:'tamed_dino_resistance_multiplier',label:'Tamed Dino Resistance', ph:'1.0'},
-      {s:'combat', k:'structure_damage_multiplier',     label:'Structure Damage',      ph:'1.0'},
+      {s:'combat', k:'player_damage_multiplier',        label:'Player Damage',         ph:'1.0', hint:'✦ Rec: 1.5 — players hit harder'},
+      {s:'combat', k:'player_resistance_multiplier',    label:'Player Resistance',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla damage taken'},
+      {s:'combat', k:'dino_damage_multiplier',          label:'Wild Dino Damage',      ph:'1.0', hint:'✦ Rec: 0.75 — less brutal early game'},
+      {s:'combat', k:'dino_resistance_multiplier',      label:'Wild Dino Resistance',  ph:'1.0', hint:'✦ Rec: 1.0 — vanilla dino toughness'},
+      {s:'combat', k:'tamed_dino_damage_multiplier',    label:'Tamed Dino Damage',     ph:'1.0', hint:'✦ Rec: 1.5 — tames hit harder'},
+      {s:'combat', k:'tamed_dino_resistance_multiplier',label:'Tamed Dino Resistance', ph:'1.0', hint:'✦ Rec: 0.6 — tames survive longer'},
+      {s:'combat', k:'structure_damage_multiplier',     label:'Structure Damage',      ph:'1.0', hint:'✦ Rec: 1.0 — vanilla structure damage'},
     ]},
     { title:'Structures', grid:true, fields:[
       {s:'structures', k:'structure_pickup_time_after_placement',    label:'Pickup Time After Place (s)',   ph:'30'},
@@ -1352,10 +1352,10 @@ const SCHEMA = [
   ]},
   { group:'Breeding', sections:[
     { title:'Mating & Hatching', grid:true, fields:[
-      {s:'breeding', k:'mating_interval_multiplier', label:'Mating Interval',  ph:'1.0'},
-      {s:'breeding', k:'mating_speed_multiplier',    label:'Mating Speed',     ph:'1.0'},
-      {s:'breeding', k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0'},
-      {s:'breeding', k:'lay_egg_interval_multiplier',label:'Lay Egg Interval', ph:'1.0'},
+      {s:'breeding', k:'mating_interval_multiplier', label:'Mating Interval',  ph:'1.0', hint:'✦ Rec: 0.001 — near instant cooldown'},
+      {s:'breeding', k:'mating_speed_multiplier',    label:'Mating Speed',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla speed'},
+      {s:'breeding', k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0', hint:'✦ Rec: 10.0 — faster hatching'},
+      {s:'breeding', k:'lay_egg_interval_multiplier',label:'Lay Egg Interval', ph:'1.0', hint:'✦ Rec: 0.5 — eggs more often'},
     ]},
     { title:'Raising & Imprinting', grid:true, fields:[
       {s:'breeding', k:'baby_mature_speed_multiplier',        label:'Mature Speed',        ph:'1.0'},
@@ -1433,7 +1433,11 @@ function render(data) {
         const val = esc((data[f.s] || {})[f.k] || '');
         const d = document.createElement('div');
         d.className = 'field' + (f.wide ? ' wide' : '');
-        const hint = f.rec ? `<span class="breed-hint" data-rec="${f.rec}"></span>` : '';
+        const hint = f.rec
+          ? `<span class="breed-hint" data-rec="${f.rec}"></span>`
+          : f.hint
+            ? `<span class="breed-hint">${esc(f.hint)}</span>`
+            : '';
         d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="${val}" placeholder="${esc(f.ph||'')}">${hint}`;
         wrap.appendChild(d);
       }
