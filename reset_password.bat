@@ -21,7 +21,7 @@ if not exist "%CONFIG%" (
     exit /b 1
 )
 
-powershell -Command "(Get-Content '%CONFIG%') | Where-Object { $_ -notmatch '^password_hash\s*=' } | Set-Content '%CONFIG%'"
+powershell -Command "(Get-Content \"%CONFIG%\") | Where-Object { $_ -notmatch '^\s*password_hash\s*=' } | Set-Content \"%CONFIG%\""
 
 echo.
 echo  Password reset! Restart the dashboard and log in with admin / admin.

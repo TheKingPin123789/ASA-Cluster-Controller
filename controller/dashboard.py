@@ -86,6 +86,15 @@ def _auth_enabled() -> bool:
     return True
 
 
+def _safe_next(url: str) -> str:
+    """Return url only if it is a local path — prevents open-redirect attacks."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme or parsed.netloc or url.startswith("//"):
+        return "/"
+    return url or "/"
+
+
 def login_required(f):
     """Decorator — redirects to /login for page routes, returns 401 for API routes."""
     @wraps(f)
@@ -473,7 +482,7 @@ async function loadWlTab() {
 
 async function loadCmdCategories() {
   try {
-    const r = await fetch('/api/command_categories');
+    const r = await apiFetch('/api/command_categories');
     if (!r.ok) return;
     const data = await r.json();
     renderCmdCategories(data.categories || {}, data.available || []);
@@ -518,7 +527,7 @@ async function addCmd(tier) {
   const sel = document.getElementById('cmd-add-' + tier);
   const val = sel.value;
   if (!val) return;
-  await fetch('/api/command_categories', {
+  await apiFetch('/api/command_categories', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({command: val, tier})
@@ -527,7 +536,7 @@ async function addCmd(tier) {
 }
 
 async function removeCmd(c) {
-  await fetch('/api/command_categories', {
+  await apiFetch('/api/command_categories', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({command: c, tier: null})
@@ -546,7 +555,7 @@ async function addWlPlayer() {
 
 async function loadAdminPanel() {
   try {
-    const r = await fetch('/api/admin_list');
+    const r = await apiFetch('/api/admin_list');
     if (!r.ok) return;
     const data = await r.json();
     renderAdminPanel(data.entries || []);
@@ -574,7 +583,7 @@ async function addAdminPlayer() {
   const inp = document.getElementById('admin-add-input');
   const id  = inp.value.trim();
   if (!id) return;
-  await fetch('/api/admin_list', {
+  await apiFetch('/api/admin_list', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({action:'add', id})
@@ -584,7 +593,7 @@ async function addAdminPlayer() {
 }
 
 async function removeAdminPlayer(id) {
-  await fetch('/api/admin_list', {
+  await apiFetch('/api/admin_list', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({action:'remove', id})
@@ -603,7 +612,7 @@ function switchRightTab(name) {
 
 // ── Commands ─────────────────────────────────────────────────────────────────
 function cmd(command) {
-  fetch('/api/command', {
+  apiFetch('/api/command', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({command})
@@ -614,9 +623,10 @@ function cmd(command) {
 function restartProcess(which) {
   const label = which === 'controller' ? 'Controller' : 'Dashboard';
   if (!confirm('Restart the ' + label + ' process?\n\nThe ' + label.toLowerCase() + ' window will close and reopen automatically.')) return;
-  fetch('/api/restart/' + which, {method: 'POST'})
-    .then(r => r.json())
+  apiFetch('/api/restart/' + which, {method: 'POST'})
+    .then(r => r ? r.json() : null)
     .then(d => {
+      if (!d) return; // null = 401, redirect already fired by apiFetch
       if (d.ok) {
         if (which === 'dashboard') {
           // Page will go offline briefly — show a reconnect banner
@@ -624,9 +634,10 @@ function restartProcess(which) {
             '<div>Dashboard is restarting…</div>' +
             '<div style="font-size:14px;color:#6b7280;">This page will reload automatically.</div>' +
             '</div>';
-          // Poll until the server is back
+          // Use raw fetch during restart polling — dashboard is coming back up so
+          // there is no valid session yet; apiFetch would redirect to /login instead.
           const poll = setInterval(() => {
-            fetch('/api/status').then(() => { clearInterval(poll); location.reload(); }).catch(() => {});
+            fetch('/api/status').then(r => { if (r.ok) { clearInterval(poll); location.reload(); } }).catch(() => {});
           }, 2000);
         }
       } else {
@@ -678,7 +689,7 @@ let _playerModalCache  = {};   // id -> {name,id,map,mapKey,isOnline,last_seen}
 
 async function loadWlPanel() {
   try {
-    const r = await fetch('/api/whitelist');
+    const r = await apiFetch('/api/whitelist');
     if (!r.ok) return;
     const data = await r.json();
     renderWlPanel(data.entries || []);
@@ -723,7 +734,7 @@ function toggleApPanel() {
 
 async function loadApPanel() {
   try {
-    const r = await fetch('/api/seen_players');
+    const r = await apiFetch('/api/seen_players');
     if (!r.ok) return;
     const data = await r.json();
     renderApPanel(data.players || {});
@@ -818,7 +829,7 @@ async function openPlayerModal(id) {
   // Fetch whitelist status fresh
   let onWl = false;
   try {
-    const r = await fetch('/api/whitelist');
+    const r = await apiFetch('/api/whitelist');
     const wlData = await r.json();
     onWl = (wlData.entries || []).includes(id);
   } catch(e) {}
@@ -954,7 +965,7 @@ function tickTimer() {
 setInterval(tickTimer, 1000);
 
 // ── Session expiry handling ───────────────────────────────────────────────────
-// Wraps fetch() — redirects to /login automatically on 401 (session expired)
+// Wraps apiFetch() — redirects to /login automatically on 401 (session expired)
 async function apiFetch(url, opts) {
   const r = await fetch(url, opts);
   if (r.status === 401) { window.location.href = '/login'; return null; }
@@ -1657,10 +1668,10 @@ function wireBreedingHints() {
 async function load() {
   let data = {};
   try {
-    const r = await fetch('/api/settings');
+    const r = await apiFetch('/api/settings');
     data = await r.json();
     if (!Object.keys(data).length) {
-      const dr = await fetch('/api/defaults');
+      const dr = await apiFetch('/api/defaults');
       data = await dr.json();
       document.getElementById('notice').style.display = 'block';
     }
@@ -1677,7 +1688,7 @@ async function save() {
     if (!payload[s]) payload[s] = {};
     payload[s][k] = i.value || i.placeholder;
   });
-  const r = await fetch('/api/settings', {
+  const r = await apiFetch('/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(payload)
   });
@@ -1822,7 +1833,7 @@ def login_post():
     if _check_credentials(username, password):
         session["logged_in"] = True
         session.permanent = True
-        return redirect(next_url or "/")
+        return redirect(_safe_next(next_url))
     return render_template_string(LOGIN_PAGE, error="Invalid username or password.", next=next_url)
 
 
