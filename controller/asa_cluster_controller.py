@@ -2155,10 +2155,10 @@ def _save_seen_players() -> None:
 def main() -> int:
     global SHOULD_EXIT
 
-    # Write PID file so restart scripts can kill this process
+    # Write the parent cmd.exe PID so restart scripts can close the entire window
     try:
         with open(CONTROLLER_PID_FILE, "w") as _pf:
-            _pf.write(str(os.getpid()))
+            _pf.write(str(os.getppid()))
     except Exception:
         pass
 

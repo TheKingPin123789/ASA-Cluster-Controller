@@ -1,18 +1,18 @@
 @echo off
 cd /d "%~dp0"
 
-:: Kill existing controller window if still running
+:: Kill the controller CMD window using the stored cmd.exe PID
 set PID_FILE=controller\controller.pid
 if exist "%PID_FILE%" (
     set /p CTRL_PID=<"%PID_FILE%"
-    taskkill /F /PID %CTRL_PID% >nul 2>&1
+    taskkill /F /T /PID %CTRL_PID% >nul 2>&1
     del "%PID_FILE%" >nul 2>&1
 )
 
-:: Also kill by window title as a fallback
+:: Fallback: kill by window title if PID file was missing
 taskkill /F /FI "WINDOWTITLE eq ASA Cluster Controller" >nul 2>&1
 
-:: Brief pause so the port / files are fully released
+:: Brief pause so files are fully released
 timeout /t 2 >nul
 
 :: Re-launch controller in its own window
