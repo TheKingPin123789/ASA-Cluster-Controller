@@ -1671,19 +1671,21 @@ async function load() {
   let data = {};
   try {
     const r = await apiFetch('/api/settings');
-    data = await r.json();
+    if (r) data = await r.json();
     if (!Object.keys(data).length) {
       const dr = await apiFetch('/api/defaults');
-      data = await dr.json();
+      if (dr) data = await dr.json();
       document.getElementById('notice').style.display = 'block';
     }
-  } catch(e) {}
+  } catch(e) { console.error('Settings load error:', e); }
   buildTabBar();
   render(data);
   wireBreedingHints();
 }
 
 async function save() {
+  const btn = document.getElementById('save-btn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
   const payload = {};
   document.querySelectorAll('#form input').forEach(i => {
     const s = i.dataset.s, k = i.dataset.k;
@@ -1692,19 +1694,27 @@ async function save() {
     // Password fields: send exact value (never fall back to placeholder)
     payload[s][k] = i.type === 'password' ? i.value : (i.value || i.placeholder);
   });
-  const r = await apiFetch('/api/settings', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
-  });
-  if (!r) return; // 401 — apiFetch already redirected to /login
-  const btn = document.getElementById('save-btn');
-  if (r.ok) {
-    document.getElementById('notice').style.display = 'none';
-    btn.textContent = 'Saved!'; btn.className = 'btn saved';
-    setTimeout(() => { btn.textContent = 'Save Settings'; btn.className = 'btn'; }, 2000);
-  } else {
-    btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d';
-    setTimeout(() => { btn.textContent = 'Save Settings'; btn.style.background = ''; }, 2500);
+  const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };
+  try {
+    const r = await apiFetch('/api/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!r) return; // 401 — apiFetch already redirected to /login
+    if (r.ok) {
+      document.getElementById('notice').style.display = 'none';
+      btn.textContent = 'Saved!'; btn.className = 'btn saved'; btn.disabled = false;
+      setTimeout(reset, 2000);
+    } else {
+      const body = await r.json().catch(() => ({}));
+      btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
+      console.error('Settings save failed:', r.status, body);
+      setTimeout(reset, 2500);
+    }
+  } catch (e) {
+    btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
+    console.error('Settings save error:', e);
+    setTimeout(reset, 2500);
   }
 }
 
