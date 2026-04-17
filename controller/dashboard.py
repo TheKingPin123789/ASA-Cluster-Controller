@@ -1141,6 +1141,9 @@ def get_defaults():
             "max_tamed_dinos": "5000",
             "max_personal_tamed_dinos": "40",
             "low_memory_mode": "true",
+            "no_sound": "true",
+            "texture_streaming_pool_size": "0",
+            "gc_purge_interval": "30",
         },
         "timers": {
             "poll_seconds": "5",
@@ -1281,7 +1284,10 @@ const SCHEMA = [
       {s:'limits', k:'max_players',            label:'Max Players per Map',    ph:'70'},
       {s:'limits', k:'max_tamed_dinos',        label:'Max Tamed Dinos (total)',ph:'5000'},
       {s:'limits', k:'max_personal_tamed_dinos',label:'Max Tamed (per player)',ph:'40'},
-      {s:'limits', k:'low_memory_mode',        label:'Low Memory Mode',        ph:'true',  hint:'Adds -lowmemory -nomemorybias to server launch (~30% less RAM)'},
+      {s:'limits', k:'low_memory_mode',             label:'Low Memory Mode',           ph:'true',  hint:'Adds -lowmemory -nomemorybias to server launch (~30% less RAM)'},
+      {s:'limits', k:'no_sound',                    label:'Disable Sound System',      ph:'true',  hint:'Adds -nosound — server has no speakers, saves ~200 MB per server'},
+      {s:'limits', k:'texture_streaming_pool_size', label:'Texture Streaming Pool (MB)',ph:'0',    hint:'Set to 0 to disable — server never renders, saves ~500 MB–1 GB per server'},
+      {s:'limits', k:'gc_purge_interval',           label:'GC Purge Interval (s)',     ph:'30',    hint:'How often ARK runs garbage collection — lower = more frequent cleanup'},
     ]},
     { title:'Schedule', grid:true, fields:[
       {s:'schedule', k:'poll_seconds',            label:'Poll Interval (s)',      ph:'5'},

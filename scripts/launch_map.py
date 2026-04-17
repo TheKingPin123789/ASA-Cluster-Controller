@@ -180,6 +180,24 @@ def _patch_game_ini(cfg, server_root: str) -> None:
     })
 
 
+def _patch_engine_ini(cfg, server_root: str) -> None:
+    """Patch Engine.ini with memory-saving settings.
+
+    Disables the texture streaming pool (pre-allocated but unused on a
+    headless server) and tunes GC frequency to reduce RAM footprint.
+    """
+    path = os.path.join(
+        server_root, "ShooterGame", "Saved", "Config", "WindowsServer", "Engine.ini"
+    )
+    _patch_ini(path, "/Script/Engine.GarbageCollectionSettings", {
+        "gc.TimeBetweenPurgingPendingKillObjects": _g(cfg, "limits", "gc_purge_interval", "30"),
+    })
+    _patch_ini(path, "TextureStreaming", {
+        "r.Streaming.PoolSize":             _g(cfg, "limits", "texture_streaming_pool_size", "0"),
+        "r.Streaming.MaxTempMemoryAllowed": "0",
+    })
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: python launch_map.py <map_key>")
@@ -206,7 +224,8 @@ def main() -> None:
     cluster_id    = cluster_name.replace(" ","") + "Cluster"
     rcon_password = _g(cfg, "cluster","rcon_password",   "ChangeMe123")
     max_players   = _g2(cfg,"limits","max_players",      "70","performance")
-    low_memory    = _g(cfg, "limits","low_memory_mode",           "false").lower() == "true"
+    low_memory    = _g(cfg, "limits","low_memory_mode",            "true").lower()  == "true"
+    no_sound      = _g(cfg, "limits","no_sound",                  "true").lower()  == "true"
     allow_tp      = _g(cfg, "flags","allow_third_person",        "false").lower() == "true"
     show_map_loc  = _g(cfg, "flags","show_map_player_location",  "true").lower()  == "true"
     no_dl_surv    = _g(cfg, "flags","prevent_download_survivors","false").lower() == "true"
@@ -226,6 +245,7 @@ def main() -> None:
     print("Applying rates from config.ini...")
     _patch_game_user_settings(cfg, server_root)
     _patch_game_ini(cfg, server_root)
+    _patch_engine_ini(cfg, server_root)
 
     display, map_name, game_port, query_port, rcon_port = MAP_DEFS[key]
     session_name = f"{cluster_name}_{display.replace(' ', '')}"
@@ -246,6 +266,7 @@ def main() -> None:
         f"-ClusterId={cluster_id}",
     ]
     if low_memory:   flags.extend(["-lowmemory", "-nomemorybias"])
+    if no_sound:     flags.append("-nosound")
     if allow_tp:     flags.append("-AllowThirdPersonPlayer")
     if show_map_loc: flags.append("-ShowMapPlayerLocation")
     if no_dl_surv:   flags.append("-PreventDownloadSurvivors")
