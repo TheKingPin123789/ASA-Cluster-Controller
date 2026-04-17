@@ -181,20 +181,12 @@ def _patch_game_ini(cfg, server_root: str) -> None:
 
 
 def _patch_engine_ini(cfg, server_root: str) -> None:
-    """Patch Engine.ini with memory-saving settings.
-
-    Disables the texture streaming pool (pre-allocated but unused on a
-    headless server) and tunes GC frequency to reduce RAM footprint.
-    """
+    """Tune GC frequency in Engine.ini before server launch."""
     path = os.path.join(
         server_root, "ShooterGame", "Saved", "Config", "WindowsServer", "Engine.ini"
     )
     _patch_ini(path, "/Script/Engine.GarbageCollectionSettings", {
         "gc.TimeBetweenPurgingPendingKillObjects": _g(cfg, "limits", "gc_purge_interval", "30"),
-    })
-    _patch_ini(path, "TextureStreaming", {
-        "r.Streaming.PoolSize":             _g(cfg, "limits", "texture_streaming_pool_size", "0"),
-        "r.Streaming.MaxTempMemoryAllowed": "0",
     })
 
 

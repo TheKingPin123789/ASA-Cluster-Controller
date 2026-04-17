@@ -85,10 +85,9 @@ MAX_BACKUPS = int(_ci("backup", "max_backups", "10"))
 MAX_LOGS    = int(_ci("backup", "max_logs",    "10"))
 
 # ── Performance ───────────────────────────────────────────────────────────────
-LOW_MEMORY_MODE          = _ci("limits", "low_memory_mode",           "true").lower() == "true"
-NO_SOUND                 = _ci("limits", "no_sound",                  "true").lower() == "true"
-TEXTURE_STREAMING_POOL   = _ci("limits", "texture_streaming_pool_size","0")
-GC_PURGE_INTERVAL        = _ci("limits", "gc_purge_interval",         "30")
+LOW_MEMORY_MODE   = _ci("limits", "low_memory_mode",  "true").lower() == "true"
+NO_SOUND          = _ci("limits", "no_sound",         "true").lower() == "true"
+GC_PURGE_INTERVAL = _ci("limits", "gc_purge_interval","30")
 
 # ── World ─────────────────────────────────────────────────────────────────────
 DAY_TIME_SPEED       = _ci("world", "day_time_speed_scale",               "1.0")
@@ -631,11 +630,7 @@ def _patch_game_ini() -> None:
 
 
 def _patch_engine_ini() -> None:
-    """Write memory-saving settings into Engine.ini before server launch.
-
-    Disables the texture streaming pool (pre-allocated but unused on a
-    headless server) and tunes GC frequency to reduce RAM footprint.
-    """
+    """Tune GC frequency in Engine.ini before server launch."""
     engine_ini_path = os.path.join(
         SERVER_ROOT, "ShooterGame", "Saved", "Config", "WindowsServer", "Engine.ini"
     )
@@ -644,15 +639,11 @@ def _patch_engine_ini() -> None:
     c = _read_live_cfg()
     def r(s, k, fb): return _lci(c, s, k, fb)
 
-    sections = {
-        "[/Script/Engine.GarbageCollectionSettings]": {
-            "gc.TimeBetweenPurgingPendingKillObjects": r("limits", "gc_purge_interval", GC_PURGE_INTERVAL),
-        },
-        "[TextureStreaming]": {
-            "r.Streaming.PoolSize":              r("limits", "texture_streaming_pool_size", TEXTURE_STREAMING_POOL),
-            "r.Streaming.MaxTempMemoryAllowed":  "0",
-        },
+    section   = "[/Script/Engine.GarbageCollectionSettings]"
+    desired   = {
+        "gc.TimeBetweenPurgingPendingKillObjects": r("limits", "gc_purge_interval", GC_PURGE_INTERVAL),
     }
+    desired_lower = {k.lower(): (k, v) for k, v in desired.items()}
 
     if os.path.exists(engine_ini_path):
         with open(engine_ini_path, "r", encoding="utf-8") as f:
@@ -660,43 +651,38 @@ def _patch_engine_ini() -> None:
     else:
         orig_lines = []
 
-    # Process each section independently using the shared patch logic
-    result_lines = list(orig_lines)
-    for section_header, desired in sections.items():
-        desired_lower = {k.lower(): (k, v) for k, v in desired.items()}
-        in_sec = False
-        seen   = set()
-        result = []
-        for line in result_lines:
-            stripped = line.strip()
-            if stripped.startswith("["):
-                if in_sec:
-                    for lk, (ck, val) in desired_lower.items():
-                        if lk not in seen:
-                            result.append(f"{ck}={val}\n"); seen.add(lk)
-                in_sec = stripped.lower() == section_header.lower()
-                result.append(line); continue
-            if in_sec and "=" in stripped and not stripped.startswith(";"):
-                key_part = stripped.split("=", 1)[0].strip().lower()
-                if key_part in desired_lower:
-                    ck, val = desired_lower[key_part]
-                    if key_part not in seen:
-                        result.append(f"{ck}={val}\n"); seen.add(key_part)
-                    continue
-                result.append(line)
-            else:
-                result.append(line)
-        if in_sec:
-            for lk, (ck, val) in desired_lower.items():
-                if lk not in seen:
-                    result.append(f"{ck}={val}\n")
-        if not seen:
-            result.append(f"\n{section_header}\n")
-            for ck, val in desired.items():
+    in_sec = False
+    seen   = set()
+    result = []
+    for line in orig_lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            if in_sec:
+                for lk, (ck, val) in desired_lower.items():
+                    if lk not in seen:
+                        result.append(f"{ck}={val}\n"); seen.add(lk)
+            in_sec = stripped.lower() == section.lower()
+            result.append(line); continue
+        if in_sec and "=" in stripped and not stripped.startswith(";"):
+            key_part = stripped.split("=", 1)[0].strip().lower()
+            if key_part in desired_lower:
+                ck, val = desired_lower[key_part]
+                if key_part not in seen:
+                    result.append(f"{ck}={val}\n"); seen.add(key_part)
+                continue
+            result.append(line)
+        else:
+            result.append(line)
+    if in_sec:
+        for lk, (ck, val) in desired_lower.items():
+            if lk not in seen:
                 result.append(f"{ck}={val}\n")
-        result_lines = result
+    if not seen:
+        result.append(f"\n{section}\n")
+        for ck, val in desired.items():
+            result.append(f"{ck}={val}\n")
 
-    new_text = "".join(result_lines)
+    new_text = "".join(result)
     if new_text != "".join(orig_lines):
         with open(engine_ini_path, "w", encoding="utf-8") as f:
             f.write(new_text)
