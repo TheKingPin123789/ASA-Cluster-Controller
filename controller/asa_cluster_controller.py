@@ -1540,8 +1540,11 @@ def update_running_status(state: ServerState) -> None:
             state.last_autosave_at = now
     else:
         if state.is_running:
-            # Inside startup grace window — tolerate transient failures
-            if not state.online_since or (now - state.online_since) <= STARTUP_GRACE_SECONDS:
+            # Brief settling grace after coming online — lets RCON stabilise
+            # without falsely declaring a crash. Much shorter than the full
+            # startup grace; rcon_fail_count handles transient hiccups.
+            _crash_grace = int(_ci("crash", "crash_grace_seconds", "120"))
+            if not state.online_since or (now - state.online_since) <= _crash_grace:
                 return
 
             # Past grace: accumulate consecutive failures before acting

@@ -1208,6 +1208,7 @@ def get_defaults():
         },
         "crash": {
             "auto_restart_on_crash": "true",
+            "crash_grace_seconds": "120",
             "crash_cooldown_minutes": "5",
             "max_crash_restarts": "3",
             "crash_window_minutes": "60",
@@ -1361,6 +1362,7 @@ const SCHEMA = [
     ]},
     { title:'Auto-Restart on Crash', grid:true, fields:[
       {s:'crash', k:'auto_restart_on_crash',  label:'Auto-Restart on Crash', ph:'true',  hint:'Automatically restart a server if it crashes (true/false)'},
+      {s:'crash', k:'crash_grace_seconds',    label:'Online Grace (s)',       ph:'120',   hint:'Seconds after a server comes online before crash detection activates'},
       {s:'crash', k:'crash_cooldown_minutes', label:'Cooldown (min)',         ph:'5',     hint:'Minimum minutes between crash-restarts — prevents rapid restart loops'},
       {s:'crash', k:'max_crash_restarts',     label:'Max Restarts',          ph:'3',     hint:'Max times to restart within the window before giving up'},
       {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
