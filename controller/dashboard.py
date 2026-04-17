@@ -1306,9 +1306,9 @@ const SCHEMA = [
       {s:'world', k:'resources_respawn_period_multiplier',label:'Resources Respawn',        ph:'1.0',  hint:'✦ Rec: 0.5 — faster respawn (lower = quicker)'},
     ]},
     { title:'Experience & Gathering', grid3:true, fields:[
-      {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0',               hint:'✦ Rec: 3.0 — less grind'},
+      {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0',               hint:'✦ Rec: 1.5 — less grind'},
       {s:'rates', k:'harvest_amount_multiplier', label:'Harvest Amount',   ph:'1.0',               hint:'✦ Rec: 5.0 — less farming'},
-      {s:'rates', k:'taming_speed_multiplier',   label:'Taming Speed',     ph:'1.0',               hint:'✦ Rec: 10.0 — reasonable tame times'},
+      {s:'rates', k:'taming_speed_multiplier',   label:'Taming Speed',     ph:'1.0',               hint:'✦ Rec: 5.0 — reasonable tame times'},
       {s:'rates', k:'difficulty_offset',         label:'Difficulty Offset',ph:'1.0  (max lvl 150)',hint:'✦ Rec: 1.0 — enables max lvl 150 dinos'},
       {s:'rates', k:'item_stack_size_multiplier',label:'Item Stack Size',  ph:'1.0',               hint:'✦ Rec: 5.0 — less inventory juggling'},
       {s:'rates', k:'crop_growth_speed_multiplier',label:'Crop Growth',    ph:'1.0',               hint:'✦ Rec: 5.0 — faster crops'},
@@ -1319,22 +1319,22 @@ const SCHEMA = [
       {s:'rates', k:'supply_crate_loot_quality_multiplier',  label:'Supply Crate',    ph:'1.0', hint:'✦ Rec: 3.0 — rewarding drops'},
     ]},
     { title:'Decay & Fuel', grid3:true, fields:[
-      {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0', hint:'✦ Rec: 3.0 — less food waste stress'},
-      {s:'rates', k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',     ph:'1.0', hint:'✦ Rec: 5.0 — items persist longer'},
-      {s:'rates', k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp',   ph:'1.0', hint:'✦ Rec: 3.0 — more time to loot'},
+      {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0', hint:'✦ Rec: 1.0 — vanilla spoiling'},
+      {s:'rates', k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla item decay'},
+      {s:'rates', k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp',   ph:'1.0', hint:'✦ Rec: 1.0 — vanilla corpse decay'},
       {s:'rates', k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption',ph:'1.0', hint:'✦ Rec: 5.0 — less refuelling'},
     ]},
   ]},
   { group:'Survival', sections:[
     { title:'Player Stats', grid:true, fields:[
-      {s:'survival', k:'player_food_drain_multiplier',      label:'Food Drain',     ph:'1.0', hint:'✦ Rec: 0.5 — less hungry'},
-      {s:'survival', k:'player_water_drain_multiplier',     label:'Water Drain',    ph:'1.0', hint:'✦ Rec: 0.5 — less thirsty'},
-      {s:'survival', k:'player_stamina_drain_multiplier',   label:'Stamina Drain',  ph:'1.0', hint:'✦ Rec: 0.7 — less tiring'},
-      {s:'survival', k:'player_health_recovery_multiplier', label:'Health Regen',   ph:'1.0', hint:'✦ Rec: 2.0 — faster recovery'},
+      {s:'survival', k:'player_food_drain_multiplier',      label:'Food Drain',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla hunger'},
+      {s:'survival', k:'player_water_drain_multiplier',     label:'Water Drain',    ph:'1.0', hint:'✦ Rec: 1.0 — vanilla thirst'},
+      {s:'survival', k:'player_stamina_drain_multiplier',   label:'Stamina Drain',  ph:'1.0', hint:'✦ Rec: 1.0 — vanilla stamina'},
+      {s:'survival', k:'player_health_recovery_multiplier', label:'Health Regen',   ph:'1.0', hint:'✦ Rec: 1.0 — vanilla health regen'},
     ]},
     { title:'Dino Stats', grid:true, fields:[
-      {s:'survival', k:'dino_food_drain_multiplier',        label:'Dino Food Drain',  ph:'1.0', hint:'✦ Rec: 0.5 — dinos eat less often'},
-      {s:'survival', k:'dino_health_recovery_multiplier',   label:'Dino Health Regen',ph:'1.0', hint:'✦ Rec: 2.0 — dinos recover faster'},
+      {s:'survival', k:'dino_food_drain_multiplier',        label:'Dino Food Drain',  ph:'1.0', hint:'✦ Rec: 1.0 — vanilla dino hunger'},
+      {s:'survival', k:'dino_health_recovery_multiplier',   label:'Dino Health Regen',ph:'1.0', hint:'✦ Rec: 1.0 — vanilla dino regen'},
     ]},
     { title:'Combat', grid:true, fields:[
       {s:'combat', k:'player_damage_multiplier',        label:'Player Damage',         ph:'1.0', hint:'✦ Rec: 1.5 — players hit harder'},
@@ -1354,11 +1354,11 @@ const SCHEMA = [
     { title:'Mating & Hatching', grid:true, fields:[
       {s:'breeding', k:'mating_interval_multiplier', label:'Mating Interval',  ph:'1.0', hint:'✦ Rec: 0.001 — near instant cooldown'},
       {s:'breeding', k:'mating_speed_multiplier',    label:'Mating Speed',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla speed'},
-      {s:'breeding', k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0', hint:'✦ Rec: 10.0 — faster hatching'},
+      {s:'breeding', k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0', hint:'✦ Rec: 100.0 — fast hatching'},
       {s:'breeding', k:'lay_egg_interval_multiplier',label:'Lay Egg Interval', ph:'1.0', hint:'✦ Rec: 0.5 — eggs more often'},
     ]},
     { title:'Raising & Imprinting', grid:true, fields:[
-      {s:'breeding', k:'baby_mature_speed_multiplier',        label:'Mature Speed',        ph:'1.0'},
+      {s:'breeding', k:'baby_mature_speed_multiplier',        label:'Mature Speed',        ph:'1.0', hint:'✦ Rec: 50.0 — fast maturation'},
       {s:'breeding', k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval',     ph:'1.8 ÷ mature speed', rec:'interval'},
       {s:'breeding', k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period', ph:'max(5.0, mature÷10)', rec:'grace'},
       {s:'breeding', k:'baby_imprint_amount_multiplier',      label:'Imprint Amount',      ph:'20.0',               rec:'imprint'},
