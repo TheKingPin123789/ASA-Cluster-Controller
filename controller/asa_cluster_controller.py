@@ -1126,6 +1126,17 @@ def perform_cluster_shutdown() -> None:
     log(f"Waiting {POST_SHUTDOWN_WAIT_SECONDS}s for server processes to fully stop...")
     time.sleep(POST_SHUTDOWN_WAIT_SECONDS)
 
+    # Clear crash tracking on ALL servers — including any that were already
+    # offline/crashed before the shutdown was triggered.  Without this, a
+    # server that crashed mid-countdown would still have crash_offline=True
+    # and could auto-restart after the cooldown even though the cluster was
+    # intentionally stopped.
+    for state in SERVER_STATES.values():
+        state.crash_offline          = False
+        state.last_crash_restart_at  = None
+        state.crash_window_start     = None
+        state.crash_restart_count    = 0
+
     CLUSTER.shutdown_scheduled = False
     CLUSTER.shutdown_at = None
     CLUSTER.last_announcement_remaining = None
@@ -1549,6 +1560,11 @@ def update_running_status(state: ServerState) -> None:
             state.last_autosave_at = now
     else:
         if state.is_running:
+            # Never run crash detection during an intentional cluster shutdown
+            # or when the cluster has been stopped — avoid spurious restarts.
+            if CLUSTER.cluster_stopped or CLUSTER.shutdown_scheduled:
+                return
+
             # Brief settling grace after coming online — lets RCON stabilise
             # without falsely declaring a crash. Much shorter than the full
             # startup grace; rcon_fail_count handles transient hiccups.
@@ -1651,7 +1667,12 @@ def update_running_status(state: ServerState) -> None:
             # Only retry if the server went offline due to a crash.
             # crash_offline is cleared by stop_server_safe() so intentional
             # shutdowns never trigger an auto-restart here.
-            if state.crash_offline and state.last_crash_restart_at is not None:
+            # Also guard against cluster_stopped / shutdown_scheduled so that
+            # a server which crashed mid-countdown never auto-restarts after
+            # the cluster is intentionally brought down.
+            if (state.crash_offline and state.last_crash_restart_at is not None
+                    and not CLUSTER.cluster_stopped
+                    and not CLUSTER.shutdown_scheduled):
                 _lr2    = lambda s, k, d: (_cfg.get(s, k) if _cfg.has_option(s, k) else d)
                 _auto2  = _lr2("crash", "auto_restart_on_crash", "true").lower() == "true"
                 _cool2  = int(_lr2("crash", "crash_cooldown_minutes", "5")) * 60
