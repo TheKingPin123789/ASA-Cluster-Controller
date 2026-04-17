@@ -1214,7 +1214,10 @@ def get_defaults():
             "crash_window_minutes": "60",
         },
         "discord": {
-            "webhook_url": "",
+            "bot_token": "",
+            "notification_channel_id": "",
+            "command_channel_id": "",
+            "admin_role_name": "Admin",
             "notify_server_events": "true",
             "notify_crash_events": "true",
             "notify_cluster_events": "true",
@@ -1373,11 +1376,14 @@ const SCHEMA = [
       {s:'crash', k:'max_crash_restarts',     label:'Max Restarts',          ph:'3',     hint:'Max times to restart within the window before giving up'},
       {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
     ]},
-    { title:'Discord Notifications', grid:true, fields:[
-      {s:'discord', k:'webhook_url',           label:'Webhook URL',           ph:'https://discord.com/api/webhooks/...', wide:true, hint:'Paste your Discord channel webhook URL here — leave blank to disable'},
-      {s:'discord', k:'notify_server_events',  label:'Server Online/Offline', ph:'true',  hint:'Notify when a server comes online (true/false)'},
-      {s:'discord', k:'notify_crash_events',   label:'Crash Events',          ph:'true',  hint:'Notify on crash, auto-restart attempts, and crash limit reached (true/false)'},
-      {s:'discord', k:'notify_cluster_events', label:'Cluster Events',        ph:'true',  hint:'Notify on cluster restarts, shutdowns, and scheduled events (true/false)'},
+    { title:'Discord Bot', grid:true, fields:[
+      {s:'discord', k:'bot_token',                label:'Bot Token',                 ph:'your-bot-token-here',    wide:true, hint:'From Discord Developer Portal → Your App → Bot → Token'},
+      {s:'discord', k:'notification_channel_id',  label:'Notification Channel ID',   ph:'123456789012345678',     hint:'Channel where the bot posts server events — right-click channel → Copy Channel ID'},
+      {s:'discord', k:'command_channel_id',        label:'Command Channel ID',        ph:'123456789012345678',     hint:'Channel where admins type !commands — leave blank to use the notification channel'},
+      {s:'discord', k:'admin_role_name',           label:'Admin Role Name',           ph:'Admin',                  hint:'Discord role required to use bot commands'},
+      {s:'discord', k:'notify_server_events',      label:'Notify: Server Online',     ph:'true',                   hint:'Post when a server comes online (true/false)'},
+      {s:'discord', k:'notify_crash_events',       label:'Notify: Crash Events',      ph:'true',                   hint:'Post on crash, auto-restart, and crash limit reached (true/false)'},
+      {s:'discord', k:'notify_cluster_events',     label:'Notify: Cluster Events',    ph:'true',                   hint:'Post on cluster restarts, shutdowns, and scheduled events (true/false)'},
     ]},
   ]},
   { group:'World & Rates', sections:[

@@ -5,7 +5,9 @@ import sys
 import json
 import time
 import shutil
+import asyncio
 import datetime
+import threading
 import subprocess
 import configparser
 import urllib.request
@@ -88,10 +90,13 @@ MAX_CRASH_RESTARTS       = int(_ci("crash", "max_crash_restarts",      "3"))
 CRASH_WINDOW_MINUTES     = int(_ci("crash", "crash_window_minutes",    "60"))
 
 # ── Discord ───────────────────────────────────────────────────────────────────
-DISCORD_WEBHOOK_URL        = _ci("discord", "webhook_url",           "")
-DISCORD_NOTIFY_SERVER      = _ci("discord", "notify_server_events",  "true").lower() == "true"
-DISCORD_NOTIFY_CRASH       = _ci("discord", "notify_crash_events",   "true").lower() == "true"
-DISCORD_NOTIFY_CLUSTER     = _ci("discord", "notify_cluster_events", "true").lower() == "true"
+DISCORD_BOT_TOKEN              = _ci("discord", "bot_token",                "")
+DISCORD_NOTIFICATION_CHANNEL   = _ci("discord", "notification_channel_id",  "")
+DISCORD_COMMAND_CHANNEL        = _ci("discord", "command_channel_id",       "")
+DISCORD_ADMIN_ROLE             = _ci("discord", "admin_role_name",          "Admin")
+DISCORD_NOTIFY_SERVER          = _ci("discord", "notify_server_events",     "true").lower() == "true"
+DISCORD_NOTIFY_CRASH           = _ci("discord", "notify_crash_events",      "true").lower() == "true"
+DISCORD_NOTIFY_CLUSTER         = _ci("discord", "notify_cluster_events",    "true").lower() == "true"
 
 # ── Backup ────────────────────────────────────────────────────────────────────
 BACKUP_DIR  = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
@@ -332,35 +337,206 @@ def log(msg: str) -> None:
 _DC_GREEN  = 3066993   # server online
 _DC_RED    = 15158332  # crash / offline
 _DC_ORANGE = 16744272  # warning / cooldown
-_DC_BLUE   = 3447003   # cluster restart
+_DC_BLUE   = 3447003   # cluster restart / info
 _DC_GREY   = 10070709  # cluster shutdown
-
-
-def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
-    """Post a message to the Discord webhook. No-ops silently if not configured."""
-    # Re-read from _cfg each call so webhook URL / toggles take effect without restart
-    url = (_cfg.get("discord", "webhook_url") if _cfg.has_option("discord", "webhook_url") else "").strip()
-    if not url:
-        return
-    try:
-        embed: dict = {"description": message, "color": color}
-        if title:
-            embed["title"] = title
-        payload = json.dumps({"embeds": [embed]}).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json", "User-Agent": "ASA-Cluster-Controller"},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5).close()
-    except Exception as exc:
-        log(f"Discord notify failed: {exc}")
 
 
 def _dc_flag(key: str, default: str = "true") -> bool:
     """Read a discord toggle from config (re-read each call for live changes)."""
     return (_cfg.get("discord", key) if _cfg.has_option("discord", key) else default).lower() == "true"
+
+
+class DiscordBot:
+    """Runs a discord.py client in a background daemon thread.
+
+    Call start() once from main() — it no-ops if the bot is not configured.
+    Use send() from any thread to post an embed to the notification channel.
+    Commands typed in the command channel are dispatched to handle_admin_command().
+    """
+
+    def __init__(self) -> None:
+        self._loop:          Optional[asyncio.AbstractEventLoop] = None
+        self._client                                             = None
+        self._notif_channel                                      = None
+        self._notif_channel_id: int                              = 0
+        self._cmd_channel_id:   int                              = 0
+        self._ready:            bool                             = False
+
+    # ── startup ──────────────────────────────────────────────────────────────
+
+    def start(self) -> None:
+        """Spin the bot up in a daemon thread. Silent no-op if not configured."""
+        token    = (_cfg.get("discord", "bot_token")               if _cfg.has_option("discord", "bot_token")               else "").strip()
+        notif_id = (_cfg.get("discord", "notification_channel_id") if _cfg.has_option("discord", "notification_channel_id") else "").strip()
+        cmd_id   = (_cfg.get("discord", "command_channel_id")      if _cfg.has_option("discord", "command_channel_id")      else "").strip()
+
+        if not token or not notif_id:
+            return  # not configured — stay silent
+
+        try:
+            self._notif_channel_id = int(notif_id)
+            self._cmd_channel_id   = int(cmd_id) if cmd_id else self._notif_channel_id
+        except ValueError:
+            log("Discord: invalid channel ID in config — bot not started")
+            return
+
+        t = threading.Thread(target=self._run, args=(token,), daemon=True, name="DiscordBot")
+        t.start()
+
+    def _run(self, token: str) -> None:
+        try:
+            import discord  # type: ignore
+        except ImportError:
+            log("Discord: discord.py not installed — run: pip install discord.py")
+            return
+
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
+        intents = discord.Intents.default()
+        intents.message_content = True
+        self._client = discord.Client(intents=intents)
+
+        @self._client.event
+        async def on_ready() -> None:
+            self._notif_channel = self._client.get_channel(self._notif_channel_id)
+            self._ready = True
+            log(f"Discord bot online as {self._client.user}")
+
+        @self._client.event
+        async def on_message(message) -> None:
+            if message.author == self._client.user:
+                return
+            if message.channel.id != self._cmd_channel_id:
+                return
+            if not message.content.strip().startswith("!"):
+                return
+            await self._dispatch(message)
+
+        try:
+            self._loop.run_until_complete(self._client.start(token))
+        except Exception as exc:
+            log(f"Discord bot error: {exc}")
+
+    # ── command dispatch ──────────────────────────────────────────────────────
+
+    async def _dispatch(self, message) -> None:
+        import discord  # type: ignore
+
+        # Role check — re-read from config so changes take effect without restart
+        admin_role = (_cfg.get("discord", "admin_role_name") if _cfg.has_option("discord", "admin_role_name") else "Admin").strip()
+        role_names = [r.name for r in getattr(message.author, "roles", [])]
+        if admin_role not in role_names:
+            await message.reply(f"❌ You need the **{admin_role}** role to use bot commands.")
+            return
+
+        parts = message.content.strip().split()
+        base  = parts[0].lower()   # e.g. "!status"
+        arg   = parts[1].lower() if len(parts) > 1 else ""
+
+        if base == "!help":
+            embed = discord.Embed(title="ASA Controller Commands", color=_DC_BLUE)
+            embed.add_field(name="!status",         value="Cluster overview",                    inline=False)
+            embed.add_field(name="!players",        value="Who's online on each server",         inline=False)
+            embed.add_field(name="!start",          value="Start the cluster",                   inline=False)
+            embed.add_field(name="!start <map>",    value="Start a specific map",                inline=False)
+            embed.add_field(name="!stop",           value="Shutdown the cluster (with warning)", inline=False)
+            embed.add_field(name="!stop <map>",     value="Stop a specific map (with warning)",  inline=False)
+            embed.add_field(name="!restart",        value="Restart the cluster (with warning)",  inline=False)
+            await message.channel.send(embed=embed)
+            return
+
+        if base == "!status":
+            lines = []
+            for state in SERVER_STATES.values():
+                if state.is_running:
+                    lines.append(f"🟢 **{state.cfg.display_name}** — {state.player_count} player(s)")
+                elif state.is_starting:
+                    lines.append(f"🟡 **{state.cfg.display_name}** — starting…")
+                else:
+                    lines.append(f"🔴 **{state.cfg.display_name}** — offline")
+            total = sum(s.player_count for s in SERVER_STATES.values())
+            embed = discord.Embed(
+                title=f"{CLUSTER_NAME} — Status",
+                description="\n".join(lines) or "No servers configured",
+                color=_DC_BLUE,
+            )
+            embed.set_footer(text=f"Total players online: {total}")
+            await message.channel.send(embed=embed)
+            return
+
+        if base == "!players":
+            embed = discord.Embed(title=f"{CLUSTER_NAME} — Players Online", color=_DC_BLUE)
+            any_online = False
+            for state in SERVER_STATES.values():
+                if state.is_running and state.player_list:
+                    names = "\n".join(p.get("name", "Unknown") for p in state.player_list)
+                    embed.add_field(name=state.cfg.display_name, value=names, inline=True)
+                    any_online = True
+            if not any_online:
+                embed.description = "No players online right now."
+            await message.channel.send(embed=embed)
+            return
+
+        if base == "!start":
+            if arg:
+                map_key = normalize_map_name(arg)
+                if not map_key:
+                    await message.reply(f"❌ Unknown map: `{arg}`")
+                    return
+                await self._loop.run_in_executor(None, handle_admin_command, f"start {map_key}")
+                await message.reply(f"✅ Starting **{SERVER_STATES[map_key].cfg.display_name}**…")
+            else:
+                await self._loop.run_in_executor(None, handle_admin_command, "start cluster")
+                await message.reply(f"✅ Starting cluster…")
+            return
+
+        if base == "!stop":
+            if arg:
+                map_key = normalize_map_name(arg)
+                if not map_key:
+                    await message.reply(f"❌ Unknown map: `{arg}`")
+                    return
+                await self._loop.run_in_executor(None, handle_admin_command, f"stop {arg}")
+                await message.reply(f"✅ Stopping **{SERVER_STATES[map_key].cfg.display_name}** (warning sent to players)…")
+            else:
+                await self._loop.run_in_executor(None, handle_admin_command, "shutdown cluster")
+                await message.reply(f"✅ Cluster shutdown initiated (players warned)…")
+            return
+
+        if base == "!restart":
+            await self._loop.run_in_executor(None, handle_admin_command, "restart cluster")
+            await message.reply(f"✅ Cluster restart initiated (players warned)…")
+            return
+
+        await message.reply("❌ Unknown command. Type `!help` for the list.")
+
+    # ── send (thread-safe) ────────────────────────────────────────────────────
+
+    def send(self, message: str, color: int = _DC_BLUE, title: str = "") -> None:
+        """Post an embed to the notification channel. Safe to call from any thread."""
+        if not self._ready or not self._notif_channel or not self._loop:
+            return
+        try:
+            import discord  # type: ignore
+            embed = discord.Embed(description=message, color=color)
+            if title:
+                embed.title = title
+            asyncio.run_coroutine_threadsafe(
+                self._notif_channel.send(embed=embed),
+                self._loop,
+            )
+        except Exception as exc:
+            log(f"Discord send failed: {exc}")
+
+
+# Global bot instance — started in main()
+DISCORD_BOT = DiscordBot()
+
+
+def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
+    """Thin wrapper so call sites don't need to know about the bot instance."""
+    DISCORD_BOT.send(message, color, title)
 
 
 def load_whitelist() -> set:
@@ -2382,6 +2558,7 @@ def main() -> int:
 
     _load_seen_players()
     log("Controller started")
+    DISCORD_BOT.start()
     adopt_running_servers()
     restore_maps_after_restart()
 
