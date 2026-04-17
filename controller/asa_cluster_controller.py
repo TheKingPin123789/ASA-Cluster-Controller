@@ -85,7 +85,7 @@ MAX_BACKUPS = int(_ci("backup", "max_backups", "10"))
 MAX_LOGS    = int(_ci("backup", "max_logs",    "10"))
 
 # ── Performance ───────────────────────────────────────────────────────────────
-LOW_MEMORY_MODE = _ci("limits", "low_memory_mode", "false").lower() == "true"
+LOW_MEMORY_MODE = _ci("limits", "low_memory_mode", "true").lower() == "true"
 
 # ── World ─────────────────────────────────────────────────────────────────────
 DAY_TIME_SPEED       = _ci("world", "day_time_speed_scale",               "1.0")

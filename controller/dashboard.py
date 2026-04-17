@@ -1278,7 +1278,7 @@ const SCHEMA = [
       {s:'limits', k:'max_players',            label:'Max Players per Map',    ph:'70'},
       {s:'limits', k:'max_tamed_dinos',        label:'Max Tamed Dinos (total)',ph:'5000'},
       {s:'limits', k:'max_personal_tamed_dinos',label:'Max Tamed (per player)',ph:'40'},
-      {s:'limits', k:'low_memory_mode',        label:'Low Memory Mode',        ph:'false', hint:'Adds -lowmemory -nomemorybias to server launch (~30% less RAM)'},
+      {s:'limits', k:'low_memory_mode',        label:'Low Memory Mode',        ph:'true',  hint:'Adds -lowmemory -nomemorybias to server launch (~30% less RAM)'},
     ]},
     { title:'Schedule', grid:true, fields:[
       {s:'schedule', k:'poll_seconds',            label:'Poll Interval (s)',      ph:'5'},
