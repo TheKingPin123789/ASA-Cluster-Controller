@@ -709,6 +709,8 @@ def start_server(key: str) -> bool:
     def _lr2(s, k, fb, alt): v = _lci(_lc, s, k, None); return v if v is not None else _lci(_lc, alt, k, fb)
 
     _max_players    = _lr2("limits",  "max_players",              str(MAX_PLAYERS),   "performance")
+    _low_memory     = _lr("limits", "low_memory_mode",            "true").lower()  == "true"
+    _no_sound       = _lr("limits", "no_sound",                   "true").lower()  == "true"
     _third_person   = _lr("flags",  "allow_third_person",         "false").lower() == "true"
     _show_map_loc   = _lr("flags",  "show_map_player_location",   "true").lower()  == "true"
     _no_dl_surv     = _lr("flags",  "prevent_download_survivors", "false").lower() == "true"
@@ -735,8 +737,8 @@ def start_server(key: str) -> bool:
         f"-ClusterDirOverride={CLUSTER_DIR}",
         f"-ClusterId={CLUSTER_ID}",
     ]
-    if LOW_MEMORY_MODE: flags.extend(["-lowmemory", "-nomemorybias"])
-    if NO_SOUND:        flags.append("-nosound")
+    if _low_memory:     flags.extend(["-lowmemory", "-nomemorybias"])
+    if _no_sound:       flags.append("-nosound")
     if _third_person:   flags.append("-AllowThirdPersonPlayer")
     if _show_map_loc:   flags.append("-ShowMapPlayerLocation")
     if _no_dl_surv:     flags.append("-PreventDownloadSurvivors")
