@@ -273,6 +273,9 @@ class ServerState:
     crash_restart_count: int = 0
     last_crash_restart_at: Optional[float] = None
     crash_window_start: Optional[float] = None
+    # True only when the server went offline due to a crash (not a manual stop)
+    # — guards the cooldown-retry so intentional shutdowns don't auto-restart
+    crash_offline: bool = False
 
 
 @dataclass
@@ -825,6 +828,11 @@ def stop_server_safe(state: ServerState, reason: str) -> None:
     state.manual_stop_duration_seconds = 0
     state.pending_online_announcement = False
     state.seen_log_lines.clear()
+    # Intentional stop — disarm crash auto-restart so it doesn't come back up
+    state.crash_offline          = False
+    state.last_crash_restart_at  = None
+    state.crash_window_start     = None
+    state.crash_restart_count    = 0
 
 
 def split_chat_sender_and_message(line: str):
@@ -1516,7 +1524,8 @@ def update_running_status(state: ServerState) -> None:
 
         if just_came_online:
             log(f"ONLINE: {state.cfg.key}")
-            state.online_since = now
+            state.online_since  = now
+            state.crash_offline = False   # server recovered — reset crash flag
 
         state.is_running = True
         state.is_starting = False
@@ -1603,13 +1612,15 @@ def update_running_status(state: ServerState) -> None:
                 log(f"CRASH COOLDOWN: {state.cfg.key} — waiting {remaining}s before restart")
                 announce_all_online(
                     f"{state.cfg.display_name} has crashed — restarting in {remaining // 60 + 1} min")
-                # Don't restart yet; the server stays offline and the next
-                # poll will retry once the cooldown expires naturally.
+                # Mark as crash-offline so the cooldown retry block can pick
+                # it up later — but only if manually stopped will this clear.
+                state.crash_offline = True
                 return
 
             # All checks passed — restart
             state.crash_restart_count    += 1
             state.last_crash_restart_at   = now
+            state.crash_offline           = True
             log(f"CRASH RESTART {state.crash_restart_count}/{_maxr}: {state.cfg.key}")
             announce_all_online(
                 f"{state.cfg.display_name} has crashed and is being restarted "
@@ -1637,9 +1648,10 @@ def update_running_status(state: ServerState) -> None:
             state.manual_stop_last_announcement_remaining = None
 
             # ── Crash cooldown retry ──────────────────────────────────────
-            # If the server went offline due to a crash cooldown, retry
-            # the restart once the cooldown window has elapsed.
-            if state.last_crash_restart_at is not None:
+            # Only retry if the server went offline due to a crash.
+            # crash_offline is cleared by stop_server_safe() so intentional
+            # shutdowns never trigger an auto-restart here.
+            if state.crash_offline and state.last_crash_restart_at is not None:
                 _lr2    = lambda s, k, d: (_cfg.get(s, k) if _cfg.has_option(s, k) else d)
                 _auto2  = _lr2("crash", "auto_restart_on_crash", "true").lower() == "true"
                 _cool2  = int(_lr2("crash", "crash_cooldown_minutes", "5")) * 60
