@@ -533,6 +533,83 @@ def _patch_game_user_settings() -> None:
     log(f"GameUserSettings.ini patched ({settings_path})")
 
 
+def _patch_game_ini() -> None:
+    """Write breeding multipliers from config.ini into Game.ini before server launch.
+
+    Breeding settings belong in Game.ini under [/Script/ShooterGame.ShooterGameMode],
+    NOT in GameUserSettings.ini — the server ignores them if placed there.
+    """
+    game_ini_path = os.path.join(
+        SERVER_ROOT, "ShooterGame", "Saved", "Config", "WindowsServer", "Game.ini"
+    )
+    os.makedirs(os.path.dirname(game_ini_path), exist_ok=True)
+
+    c = _read_live_cfg()
+    def r(s, k, fb): return _lci(c, s, k, fb)
+    def r2(new_s, old_s, k, fb):
+        v = _lci(c, new_s, k, None)
+        return v if v is not None else _lci(c, old_s, k, fb)
+
+    desired = {
+        "MatingIntervalMultiplier":        r2("breeding", "rates", "mating_interval_multiplier",         MATING_INTERVAL_MULT),
+        "MatingSpeedMultiplier":           r2("breeding", "rates", "mating_speed_multiplier",            MATING_SPEED_MULT),
+        "EggHatchSpeedMultiplier":         r2("breeding", "rates", "egg_hatch_speed_multiplier",         EGG_HATCH_SPEED_MULT),
+        "LayEggIntervalMultiplier":        r( "breeding",          "lay_egg_interval_multiplier",        LAY_EGG_INTERVAL_MULT),
+        "BabyMatureSpeedMultiplier":       r( "breeding",          "baby_mature_speed_multiplier",       BABY_MATURE_SPEED_MULT),
+        "BabyCuddleIntervalMultiplier":    r( "breeding",          "baby_cuddle_interval_multiplier",    BABY_CUDDLE_INTERVAL_MULT),
+        "BabyCuddleGracePeriodMultiplier": r( "breeding",          "baby_cuddle_grace_period_multiplier",BABY_CUDDLE_GRACE_PERIOD_MULT),
+        "BabyImprintAmountMultiplier":     r( "breeding",          "baby_imprint_amount_multiplier",     BABY_IMPRINT_AMOUNT_MULT),
+    }
+
+    section = "[/Script/ShooterGame.ShooterGameMode]"
+    desired_lower = {k.lower(): (k, v) for k, v in desired.items()}
+
+    if os.path.exists(game_ini_path):
+        with open(game_ini_path, "r", encoding="utf-8") as f:
+            orig_lines = f.readlines()
+    else:
+        orig_lines = [f"{section}\n"]
+
+    in_sec = False
+    seen   = set()
+    result = []
+
+    for line in orig_lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            if in_sec:
+                for lk, (ck, val) in desired_lower.items():
+                    if lk not in seen:
+                        result.append(f"{ck}={val}\n"); seen.add(lk)
+            in_sec = stripped.lower() == section.lower()
+            result.append(line); continue
+        if in_sec and "=" in stripped and not stripped.startswith(";"):
+            key_part = stripped.split("=", 1)[0].strip().lower()
+            if key_part in desired_lower:
+                ck, val = desired_lower[key_part]
+                if key_part not in seen:
+                    result.append(f"{ck}={val}\n"); seen.add(key_part)
+                continue
+            result.append(line)
+        else:
+            result.append(line)
+
+    if in_sec:
+        for lk, (ck, val) in desired_lower.items():
+            if lk not in seen:
+                result.append(f"{ck}={val}\n")
+    if not seen:
+        result.append(f"\n{section}\n")
+        for ck, val in desired.items():
+            result.append(f"{ck}={val}\n")
+
+    new_text = "".join(result)
+    if new_text != "".join(orig_lines):
+        with open(game_ini_path, "w", encoding="utf-8") as f:
+            f.write(new_text)
+        log(f"Game.ini patched ({game_ini_path})")
+
+
 def start_server(key: str) -> bool:
     state = SERVER_STATES[key]
     if state.is_running or state.is_starting:
@@ -544,6 +621,7 @@ def start_server(key: str) -> bool:
         return False
 
     _patch_game_user_settings()
+    _patch_game_ini()
 
     # Re-read config fresh so settings-page changes apply without a controller restart
     _lc = _read_live_cfg()

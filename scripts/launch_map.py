@@ -43,14 +43,65 @@ def _b(cfg, s, k, fb):
     return "True" if _g(cfg, s, k, fb).lower() == "true" else "False"
 
 
+def _patch_ini(path: str, section: str, desired: dict) -> None:
+    """Patch an ini file — line-by-line, case-insensitive, key=value format."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    desired_lower  = {k.lower(): (k, v) for k, v in desired.items()}
+    section_header = f"[{section}]"
+
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            orig_lines = f.readlines()
+    else:
+        orig_lines = [f"{section_header}\n"]
+
+    in_sec = False
+    seen   = set()
+    result = []
+
+    for line in orig_lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            if in_sec:
+                for lk, (ck, val) in desired_lower.items():
+                    if lk not in seen:
+                        result.append(f"{ck}={val}\n"); seen.add(lk)
+            in_sec = stripped.lower() == section_header.lower()
+            result.append(line); continue
+        if in_sec and "=" in stripped and not stripped.startswith(";"):
+            key_part = stripped.split("=", 1)[0].strip().lower()
+            if key_part in desired_lower:
+                ck, val = desired_lower[key_part]
+                if key_part not in seen:
+                    result.append(f"{ck}={val}\n"); seen.add(key_part)
+                continue
+            result.append(line)
+        else:
+            result.append(line)
+
+    if in_sec:
+        for lk, (ck, val) in desired_lower.items():
+            if lk not in seen:
+                result.append(f"{ck}={val}\n")
+    if not seen:
+        result.append(f"\n{section_header}\n")
+        for ck, val in desired.items():
+            result.append(f"{ck}={val}\n")
+
+    new_text = "".join(result)
+    if new_text != "".join(orig_lines):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_text)
+        print(f"  {os.path.basename(path)} patched.")
+
+
 def _patch_game_user_settings(cfg, server_root: str) -> None:
-    """Patch GameUserSettings.ini — line-by-line, case-insensitive, key=value format."""
-    settings_path = os.path.join(
+    """Patch GameUserSettings.ini [ServerSettings] with rates, combat, flags, etc."""
+    path = os.path.join(
         server_root, "ShooterGame", "Saved", "Config", "WindowsServer", "GameUserSettings.ini"
     )
-    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
-
-    desired = {
+    _patch_ini(path, "ServerSettings", {
         # Limits
         "MaxPlayers":                              _g2(cfg,"limits","max_players","70","performance"),
         "MaxTamedDinos":                           _g(cfg, "limits","max_tamed_dinos","5000"),
@@ -91,15 +142,6 @@ def _patch_game_user_settings(cfg, server_root: str) -> None:
         "StructureDamageMultiplier":               _g(cfg, "combat","structure_damage_multiplier","1.0"),
         "ShowFloatingDamageText":                  _b(cfg, "combat","show_floating_damage_text","false"),
         "AllowHitMarkers":                         _b(cfg, "combat","allow_hit_markers","true"),
-        # Breeding
-        "MatingIntervalMultiplier":                _g2(cfg,"breeding","mating_interval_multiplier","1.0","rates"),
-        "MatingSpeedMultiplier":                   _g2(cfg,"breeding","mating_speed_multiplier","1.0","rates"),
-        "EggHatchSpeedMultiplier":                 _g2(cfg,"breeding","egg_hatch_speed_multiplier","1.0","rates"),
-        "LayEggIntervalMultiplier":                _g(cfg, "breeding","lay_egg_interval_multiplier","1.0"),
-        "BabyMatureSpeedMultiplier":               _g(cfg, "breeding","baby_mature_speed_multiplier","1.0"),
-        "BabyCuddleIntervalMultiplier":            _g(cfg, "breeding","baby_cuddle_interval_multiplier","1.0"),
-        "BabyCuddleGracePeriodMultiplier":         _g(cfg, "breeding","baby_cuddle_grace_period_multiplier","1.0"),
-        "BabyImprintAmountMultiplier":             _g(cfg, "breeding","baby_imprint_amount_multiplier","1.0"),
         # Structures
         "StructurePickupTimeAfterPlacement":       _g(cfg, "structures","structure_pickup_time_after_placement","30"),
         "PerPlatformMaxStructuresMultiplier":      _g(cfg, "structures","per_platform_max_structures_multiplier","1.0"),
@@ -113,54 +155,28 @@ def _patch_game_user_settings(cfg, server_root: str) -> None:
         "AllowFlyerSpeedLeveling":                 _b(cfg, "flags","allow_flyer_speed_leveling","false"),
         "DisableCryoSicknessPVP":                  _b(cfg, "flags","disable_cryo_sickness_pvp","false"),
         "bDisableCryopodEnemyCheck":               "False" if _g(cfg,"flags","require_powered_cryofridge","true").lower() == "true" else "True",
-    }
+    })
 
-    desired_lower = {k.lower(): (k, v) for k, v in desired.items()}
 
-    if os.path.exists(settings_path):
-        with open(settings_path, "r", encoding="utf-8") as f:
-            orig_lines = f.readlines()
-    else:
-        orig_lines = ["[ServerSettings]\n"]
+def _patch_game_ini(cfg, server_root: str) -> None:
+    """Patch Game.ini [/Script/ShooterGame.ShooterGameMode] with breeding multipliers.
 
-    in_ss  = False
-    seen   = set()
-    result = []
-
-    for line in orig_lines:
-        stripped = line.strip()
-        if stripped.startswith("["):
-            if in_ss:
-                for lk, (ck, val) in desired_lower.items():
-                    if lk not in seen:
-                        result.append(f"{ck}={val}\n"); seen.add(lk)
-            in_ss = stripped.lower() == "[serversettings]"
-            result.append(line); continue
-        if in_ss and "=" in stripped and not stripped.startswith(";"):
-            key_part = stripped.split("=", 1)[0].strip().lower()
-            if key_part in desired_lower:
-                ck, val = desired_lower[key_part]
-                if key_part not in seen:
-                    result.append(f"{ck}={val}\n"); seen.add(key_part)
-                continue
-            result.append(line)
-        else:
-            result.append(line)
-
-    if in_ss:
-        for lk, (ck, val) in desired_lower.items():
-            if lk not in seen:
-                result.append(f"{ck}={val}\n")
-    if not seen:
-        result.append("\n[ServerSettings]\n")
-        for ck, val in desired.items():
-            result.append(f"{ck}={val}\n")
-
-    new_text = "".join(result)
-    if new_text != "".join(orig_lines):
-        with open(settings_path, "w", encoding="utf-8") as f:
-            f.write(new_text)
-        print("  GameUserSettings.ini patched.")
+    Breeding settings belong here, NOT in GameUserSettings.ini — the server
+    ignores them if placed there.
+    """
+    path = os.path.join(
+        server_root, "ShooterGame", "Saved", "Config", "WindowsServer", "Game.ini"
+    )
+    _patch_ini(path, "/Script/ShooterGame.ShooterGameMode", {
+        "MatingIntervalMultiplier":        _g2(cfg,"breeding","mating_interval_multiplier","1.0","rates"),
+        "MatingSpeedMultiplier":           _g2(cfg,"breeding","mating_speed_multiplier","1.0","rates"),
+        "EggHatchSpeedMultiplier":         _g2(cfg,"breeding","egg_hatch_speed_multiplier","1.0","rates"),
+        "LayEggIntervalMultiplier":        _g(cfg, "breeding","lay_egg_interval_multiplier","1.0"),
+        "BabyMatureSpeedMultiplier":       _g(cfg, "breeding","baby_mature_speed_multiplier","1.0"),
+        "BabyCuddleIntervalMultiplier":    _g(cfg, "breeding","baby_cuddle_interval_multiplier","1.0"),
+        "BabyCuddleGracePeriodMultiplier": _g(cfg, "breeding","baby_cuddle_grace_period_multiplier","1.0"),
+        "BabyImprintAmountMultiplier":     _g(cfg, "breeding","baby_imprint_amount_multiplier","1.0"),
+    })
 
 
 def main() -> None:
@@ -207,6 +223,7 @@ def main() -> None:
 
     print("Applying rates from config.ini...")
     _patch_game_user_settings(cfg, server_root)
+    _patch_game_ini(cfg, server_root)
 
     display, map_name, game_port, query_port, rcon_port = MAP_DEFS[key]
     session_name = f"{cluster_name}_{display.replace(' ', '')}"
