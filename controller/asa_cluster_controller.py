@@ -25,7 +25,8 @@ STATUS_FILE = os.path.join(BASE_DIR, "cluster_status.txt")
 STATUS_JSON_FILE = os.path.join(BASE_DIR, "cluster_status.json")
 LOG_FILE       = os.path.join(BASE_DIR, "controller.log")
 ADMIN_LOG_FILE = os.path.join(BASE_DIR, "admin_log.txt")
-STOP_FILE = os.path.join(BASE_DIR, "controller.stop")
+STOP_FILE            = os.path.join(BASE_DIR, "controller.stop")
+CONTROLLER_RESTART_FILE = os.path.join(BASE_DIR, "controller.restart")
 RESTART_MAPS_FILE = os.path.join(BASE_DIR, "restart_maps.txt")
 WHITELIST_FILE = os.path.join(BASE_DIR, "whitelist.txt")
 WHITELIST_DISABLED_FLAG = os.path.join(BASE_DIR, "whitelist_disabled.flag")
@@ -2183,6 +2184,20 @@ def main() -> int:
 
     while True:
         try:
+            # Restart signal written by dashboard — exit cleanly so the CMD
+            # window closes on its own (cmd /c sees exit code 0 and closes)
+            if os.path.exists(CONTROLLER_RESTART_FILE):
+                try:
+                    os.remove(CONTROLLER_RESTART_FILE)
+                except OSError:
+                    pass
+                log("Restart requested — controller exiting cleanly")
+                try:
+                    os.remove(CONTROLLER_PID_FILE)
+                except FileNotFoundError:
+                    pass
+                return 0
+
             poll_admin_commands()
 
             for state in servers_to_probe():

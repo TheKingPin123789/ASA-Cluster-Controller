@@ -18,8 +18,9 @@ WHITELIST_FILE      = os.path.join(BASE_DIR, "whitelist.txt")
 SEEN_PLAYERS_FILE     = os.path.join(BASE_DIR, "seen_players.json")
 COMMAND_CATEGORIES_FILE = os.path.join(BASE_DIR, "command_categories.json")
 ADMIN_LIST_FILE         = os.path.join(BASE_DIR, "admin_list.txt")
-CONTROLLER_PID_FILE     = os.path.join(BASE_DIR, "controller.pid")
-DASHBOARD_PID_FILE      = os.path.join(BASE_DIR, "dashboard.pid")
+CONTROLLER_PID_FILE        = os.path.join(BASE_DIR, "controller.pid")
+DASHBOARD_PID_FILE         = os.path.join(BASE_DIR, "dashboard.pid")
+CONTROLLER_RESTART_FILE    = os.path.join(BASE_DIR, "controller.restart")
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -1567,7 +1568,15 @@ load();
 
 @app.route("/api/restart/controller", methods=["POST"])
 def restart_controller():
-    """Close the controller CMD window then re-launch it."""
+    """Signal the controller to exit cleanly, then re-launch it via BAT."""
+    # Write the restart signal file — the controller detects it on its next
+    # poll iteration, exits with code 0, and cmd /c closes the window cleanly.
+    try:
+        with open(CONTROLLER_RESTART_FILE, "w") as f:
+            f.write("restart")
+    except Exception as exc:
+        return jsonify({"error": f"Could not write restart signal: {exc}"}), 500
+
     bat = os.path.join(ROOT_DIR, "restart_controller.bat")
     try:
         subprocess.Popen(
@@ -1576,7 +1585,7 @@ def restart_controller():
             cwd=ROOT_DIR,
         )
     except Exception as exc:
-        return jsonify({"error": f"Could not restart controller: {exc}"}), 500
+        return jsonify({"error": f"Could not launch restart script: {exc}"}), 500
 
     return jsonify({"ok": True, "message": "Controller is restarting…"})
 
