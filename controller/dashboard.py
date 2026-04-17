@@ -1,10 +1,14 @@
 import os
+import sys
 import json
+import signal
 import logging
+import subprocess
 import configparser
 from flask import Flask, jsonify, request, render_template_string
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR        = os.path.dirname(BASE_DIR)          # one level up from controller/
 STATUS_JSON     = os.path.join(BASE_DIR, "cluster_status.json")
 LOG_FILE        = os.path.join(BASE_DIR, "controller.log")
 ADMIN_LOG_FILE  = os.path.join(BASE_DIR, "admin_log.txt")
@@ -14,6 +18,8 @@ WHITELIST_FILE      = os.path.join(BASE_DIR, "whitelist.txt")
 SEEN_PLAYERS_FILE     = os.path.join(BASE_DIR, "seen_players.json")
 COMMAND_CATEGORIES_FILE = os.path.join(BASE_DIR, "command_categories.json")
 ADMIN_LIST_FILE         = os.path.join(BASE_DIR, "admin_list.txt")
+CONTROLLER_PID_FILE     = os.path.join(BASE_DIR, "controller.pid")
+DASHBOARD_PID_FILE      = os.path.join(BASE_DIR, "dashboard.pid")
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -177,6 +183,15 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
       <span id="status-line">Connecting...</span>
       <span id="restart-timer" style="font-size:14px; font-family:Consolas,monospace;"></span>
+    </div>
+    <!-- Process restart buttons -->
+    <div style="display:flex; gap:5px;">
+      <button onclick="restartProcess('controller')" title="Restart Controller process"
+              style="background:#1e2a1e; border:1px solid #2d6a2d; color:#4ade80; cursor:pointer; font-size:11px; padding:3px 8px; border-radius:4px; white-space:nowrap;"
+              onmouseover="this.style.background='#2d6a2d'" onmouseout="this.style.background='#1e2a1e'">↺ Controller</button>
+      <button onclick="restartProcess('dashboard')" title="Restart Dashboard process"
+              style="background:#1e2038; border:1px solid #2d4a8a; color:#93c5fd; cursor:pointer; font-size:11px; padding:3px 8px; border-radius:4px; white-space:nowrap;"
+              onmouseover="this.style.background='#2d4a8a'" onmouseout="this.style.background='#1e2038'">↺ Dashboard</button>
     </div>
     <button onclick="openSettings()" title="Settings"
             style="background:none; border:none; cursor:pointer; font-size:20px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px;"
@@ -520,6 +535,32 @@ function cmd(command) {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({command})
   });
+}
+
+// Restart controller or dashboard process independently
+function restartProcess(which) {
+  const label = which === 'controller' ? 'Controller' : 'Dashboard';
+  if (!confirm('Restart the ' + label + ' process?\n\nThe ' + label.toLowerCase() + ' window will close and reopen automatically.')) return;
+  fetch('/api/restart/' + which, {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        if (which === 'dashboard') {
+          // Page will go offline briefly — show a reconnect banner
+          document.body.innerHTML = '<div style="display:flex;height:100vh;align-items:center;justify-content:center;background:#0f0f1a;color:#93c5fd;font-family:Segoe UI,sans-serif;font-size:18px;flex-direction:column;gap:16px;">' +
+            '<div>Dashboard is restarting…</div>' +
+            '<div style="font-size:14px;color:#6b7280;">This page will reload automatically.</div>' +
+            '</div>';
+          // Poll until the server is back
+          const poll = setInterval(() => {
+            fetch('/api/status').then(() => { clearInterval(poll); location.reload(); }).catch(() => {});
+          }, 2000);
+        }
+      } else {
+        alert('Restart failed: ' + (d.error || 'unknown error'));
+      }
+    })
+    .catch(() => alert('Could not reach dashboard API.'));
 }
 
 // Send from console input — echo locally, then wait for admin_log to show response
@@ -1527,6 +1568,53 @@ load();
 </html>"""
 
 
+@app.route("/api/restart/controller", methods=["POST"])
+def restart_controller():
+    """Kill the controller process (by PID file) then re-launch it."""
+    try:
+        with open(CONTROLLER_PID_FILE) as f:
+            pid = int(f.read().strip())
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+    except Exception as exc:
+        return jsonify({"error": f"Could not kill controller: {exc}"}), 500
+
+    bat = os.path.join(ROOT_DIR, "restart_controller.bat")
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", bat],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            cwd=ROOT_DIR,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Could not restart controller: {exc}"}), 500
+
+    return jsonify({"ok": True, "message": "Controller is restarting…"})
+
+
+@app.route("/api/restart/dashboard", methods=["POST"])
+def restart_dashboard():
+    """Re-launch the dashboard in a new window, then exit this process."""
+    bat = os.path.join(ROOT_DIR, "restart_dashboard.bat")
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", bat],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            cwd=ROOT_DIR,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Could not restart dashboard: {exc}"}), 500
+
+    # Give the response a moment to reach the browser before we exit
+    def _delayed_exit():
+        import time as _t
+        _t.sleep(1)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    import threading
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+    return jsonify({"ok": True, "message": "Dashboard is restarting…"})
+
+
 @app.route("/settings")
 def settings_page():
     return SETTINGS_PAGE
@@ -1534,6 +1622,14 @@ def settings_page():
 
 if __name__ == "__main__":
     import socket
+
+    # Write PID so restart scripts / API endpoints can kill this process
+    try:
+        with open(DASHBOARD_PID_FILE, "w") as _pf:
+            _pf.write(str(os.getpid()))
+    except Exception:
+        pass
+
     port = _get_web_port()
     try:
         # Probe the port before Flask tries to bind — gives a clear error message
@@ -1546,4 +1642,10 @@ if __name__ == "__main__":
         input("\nPress Enter to close...")
         raise SystemExit(1)
     print(f"Dashboard running at http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    try:
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    finally:
+        try:
+            os.remove(DASHBOARD_PID_FILE)
+        except FileNotFoundError:
+            pass

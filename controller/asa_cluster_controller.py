@@ -32,6 +32,7 @@ WHITELIST_DISABLED_FLAG = os.path.join(BASE_DIR, "whitelist_disabled.flag")
 SEEN_PLAYERS_FILE        = os.path.join(BASE_DIR, "seen_players.json")
 COMMAND_CATEGORIES_FILE  = os.path.join(BASE_DIR, "command_categories.json")
 ADMIN_LIST_FILE          = os.path.join(BASE_DIR, "admin_list.txt")
+CONTROLLER_PID_FILE      = os.path.join(BASE_DIR, "controller.pid")
 
 # ── Load config (wizard runs here if needed) ──────────────
 _cfg = prompt_setup_on_startup()
@@ -2154,6 +2155,13 @@ def _save_seen_players() -> None:
 def main() -> int:
     global SHOULD_EXIT
 
+    # Write PID file so restart scripts can kill this process
+    try:
+        with open(CONTROLLER_PID_FILE, "w") as _pf:
+            _pf.write(str(os.getpid()))
+    except Exception:
+        pass
+
     # Archive the previous log and prune old ones
     _rotate_log()
 
@@ -2197,6 +2205,10 @@ def main() -> int:
         except KeyboardInterrupt:
             log("Controller stopped by user")
             _write_stop_file()
+            try:
+                os.remove(CONTROLLER_PID_FILE)
+            except FileNotFoundError:
+                pass
             return 0
         except Exception as exc:
             log(f"ERROR: {exc}")
