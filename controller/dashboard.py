@@ -1439,7 +1439,7 @@ const SCHEMA = [
     ]},
     { title:'Dashboard Login', fields:[
       {s:'auth', k:'username',      label:'Username',         ph:'admin',   hint:'Login username for the dashboard'},
-      {s:'auth', k:'new_password',  label:'New Password',     ph:'',        hint:'Leave blank to keep current password — fill in to change it'},
+      {s:'auth', k:'new_password',  label:'New Password',     ph:'',        type:'password', hint:'Leave blank to keep current password — fill in to change it'},
     ]},
     { title:'Paths', fields:[
       {s:'paths', k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',              wide:true},
@@ -1633,7 +1633,9 @@ function render(data) {
             ? `<span class="breed-hint">${esc(f.hint)}</span>`
             : '';
         // Field is always empty — placeholder shows the current config value
-        d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+        const inputType = f.type === 'password' ? 'password' : 'text';
+        const autoComp  = f.type === 'password' ? 'new-password' : 'off';
+        d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
         wrap.appendChild(d);
       }
       groupEl.appendChild(wrap);
@@ -1685,13 +1687,16 @@ async function save() {
   const payload = {};
   document.querySelectorAll('#form input').forEach(i => {
     const s = i.dataset.s, k = i.dataset.k;
+    if (!s || !k) return; // skip inputs without data-s / data-k
     if (!payload[s]) payload[s] = {};
-    payload[s][k] = i.value || i.placeholder;
+    // Password fields: send exact value (never fall back to placeholder)
+    payload[s][k] = i.type === 'password' ? i.value : (i.value || i.placeholder);
   });
   const r = await apiFetch('/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(payload)
   });
+  if (!r) return; // 401 — apiFetch already redirected to /login
   const btn = document.getElementById('save-btn');
   if (r.ok) {
     document.getElementById('notice').style.display = 'none';
