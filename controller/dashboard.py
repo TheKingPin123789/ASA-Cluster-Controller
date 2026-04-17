@@ -1431,7 +1431,8 @@ function render(data) {
       else wrap.className = 'stack';
       for (const f of sec.fields) {
         const saved = (data[f.s] || {})[f.k] || '';
-        const ph    = f.ph || '';
+        // Placeholder shows the config.ini value if set, otherwise the hardcoded default
+        const ph    = saved || f.ph || '';
         const d = document.createElement('div');
         d.className = 'field' + (f.wide ? ' wide' : '');
         const hint = f.rec
@@ -1439,11 +1440,8 @@ function render(data) {
           : f.hint
             ? `<span class="breed-hint">${esc(f.hint)}</span>`
             : '';
-        // Show saved value only when it differs from the default placeholder,
-        // so fields appear empty (showing the default as grey placeholder text)
-        // until the user has explicitly set a custom value.
-        const val = (saved && saved !== ph) ? esc(saved) : '';
-        d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="${val}" placeholder="${esc(ph)}">${hint}`;
+        // Field is always empty — placeholder shows the current config value
+        d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
         wrap.appendChild(d);
       }
       groupEl.appendChild(wrap);
@@ -1496,7 +1494,7 @@ async function save() {
   document.querySelectorAll('#form input').forEach(i => {
     const s = i.dataset.s, k = i.dataset.k;
     if (!payload[s]) payload[s] = {};
-    payload[s][k] = i.value;
+    payload[s][k] = i.value || i.placeholder;
   });
   const r = await fetch('/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
