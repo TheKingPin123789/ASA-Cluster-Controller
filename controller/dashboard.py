@@ -1153,6 +1153,7 @@ def get_defaults():
         "backup": {
             "backup_dir": r"C:\ASA_Cluster\backups",
             "max_backups": "10",
+            "max_logs": "10",
         },
         "schedule": {
             "check_updates_on_startup": "true",
@@ -1277,6 +1278,7 @@ const SCHEMA = [
       {s:'limits', k:'max_players',            label:'Max Players per Map',    ph:'70'},
       {s:'limits', k:'max_tamed_dinos',        label:'Max Tamed Dinos (total)',ph:'5000'},
       {s:'limits', k:'max_personal_tamed_dinos',label:'Max Tamed (per player)',ph:'40'},
+      {s:'limits', k:'low_memory_mode',        label:'Low Memory Mode',        ph:'false', hint:'Adds -lowmemory -nomemorybias to server launch (~30% less RAM)'},
     ]},
     { title:'Schedule', grid:true, fields:[
       {s:'schedule', k:'poll_seconds',            label:'Poll Interval (s)',      ph:'5'},
@@ -1296,6 +1298,7 @@ const SCHEMA = [
     { title:'Backup', grid:true, fields:[
       {s:'backup', k:'backup_dir',   label:'Backup Directory', ph:'C:\\ASA_Cluster\\backups', wide:true},
       {s:'backup', k:'max_backups',  label:'Max Backups',       ph:'10'},
+      {s:'backup', k:'max_logs',     label:'Max Saved Logs',    ph:'10', hint:'Logs are archived on each restart — oldest deleted when over this limit'},
     ]},
   ]},
   { group:'World & Rates', sections:[

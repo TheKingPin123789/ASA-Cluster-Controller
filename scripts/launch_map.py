@@ -206,6 +206,7 @@ def main() -> None:
     cluster_id    = cluster_name.replace(" ","") + "Cluster"
     rcon_password = _g(cfg, "cluster","rcon_password",   "ChangeMe123")
     max_players   = _g2(cfg,"limits","max_players",      "70","performance")
+    low_memory    = _g(cfg, "limits","low_memory_mode",           "false").lower() == "true"
     allow_tp      = _g(cfg, "flags","allow_third_person",        "false").lower() == "true"
     show_map_loc  = _g(cfg, "flags","show_map_player_location",  "true").lower()  == "true"
     no_dl_surv    = _g(cfg, "flags","prevent_download_survivors","false").lower() == "true"
@@ -244,6 +245,7 @@ def main() -> None:
         f"-ClusterDirOverride={cluster_dir}",
         f"-ClusterId={cluster_id}",
     ]
+    if low_memory:   flags.extend(["-lowmemory", "-nomemorybias"])
     if allow_tp:     flags.append("-AllowThirdPersonPlayer")
     if show_map_loc: flags.append("-ShowMapPlayerLocation")
     if no_dl_surv:   flags.append("-PreventDownloadSurvivors")

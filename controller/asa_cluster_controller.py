@@ -10,6 +10,7 @@ import subprocess
 import configparser
 import urllib.request
 import zipfile
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -81,6 +82,10 @@ SHUTDOWN_WARNING_MINUTES        = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 # ── Backup ────────────────────────────────────────────────────────────────────
 BACKUP_DIR  = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
 MAX_BACKUPS = int(_ci("backup", "max_backups", "10"))
+MAX_LOGS    = int(_ci("backup", "max_logs",    "10"))
+
+# ── Performance ───────────────────────────────────────────────────────────────
+LOW_MEMORY_MODE = _ci("limits", "low_memory_mode", "false").lower() == "true"
 
 # ── World ─────────────────────────────────────────────────────────────────────
 DAY_TIME_SPEED       = _ci("world", "day_time_speed_scale",               "1.0")
@@ -242,7 +247,7 @@ class ServerState:
     last_player_seen_at: Optional[float] = None
     empty_since: Optional[float] = None
     last_autosave_at: float = 0.0
-    seen_log_lines: set = field(default_factory=set)
+    seen_log_lines: deque = field(default_factory=lambda: deque(maxlen=500))
     players: set = field(default_factory=set)
     player_count: int = 0
     online_since: Optional[float] = None
@@ -267,6 +272,26 @@ class ClusterState:
 
 SERVER_STATES: Dict[str, ServerState] = {k: ServerState(cfg=v) for k, v in SERVERS.items()}
 CLUSTER = ClusterState()
+
+
+def _rotate_log() -> None:
+    """On controller startup: archive the current log with a timestamp, then
+    delete the oldest archived logs if the count exceeds MAX_LOGS."""
+    if not os.path.exists(LOG_FILE):
+        return
+    ts = time.strftime("%Y-%m-%d_%H-%M-%S")
+    archived = os.path.join(BASE_DIR, f"controller_{ts}.log")
+    try:
+        os.rename(LOG_FILE, archived)
+    except Exception:
+        return
+    # Prune oldest archived logs
+    old_logs = sorted(Path(BASE_DIR).glob("controller_*.log"), key=lambda p: p.name)
+    while len(old_logs) > MAX_LOGS:
+        try:
+            old_logs.pop(0).unlink()
+        except Exception:
+            pass
 
 
 def log(msg: str) -> None:
@@ -647,6 +672,7 @@ def start_server(key: str) -> bool:
         f"-ClusterDirOverride={CLUSTER_DIR}",
         f"-ClusterId={CLUSTER_ID}",
     ]
+    if LOW_MEMORY_MODE: flags.extend(["-lowmemory", "-nomemorybias"])
     if _third_person:   flags.append("-AllowThirdPersonPlayer")
     if _show_map_loc:   flags.append("-ShowMapPlayerLocation")
     if _no_dl_surv:     flags.append("-PreventDownloadSurvivors")
@@ -1365,7 +1391,7 @@ def sync_players_from_game_log(state: ServerState) -> None:
     joined = set()
     left = set()
     for line in lines:
-        state.seen_log_lines.add(line)
+        state.seen_log_lines.append(line)
         join_match = re.search(r"UniqueNetId:([0-9a-fA-F]+).*joined this ARK", line)
         if join_match:
             pid = join_match.group(1)
@@ -1500,11 +1526,8 @@ def poll_chat(state: ServerState) -> None:
     for ln in lines:
         if ln in state.seen_log_lines:
             continue
-        state.seen_log_lines.add(ln)
+        state.seen_log_lines.append(ln)
         new_lines.append(ln)
-
-    if len(state.seen_log_lines) > 1000:
-        state.seen_log_lines = set(list(state.seen_log_lines)[-500:])
 
     for line in new_lines:
         join_match = re.search(r"UniqueNetId:([0-9a-fA-F]+).*joined this ARK", line)
@@ -2064,6 +2087,9 @@ def _save_seen_players() -> None:
 
 def main() -> int:
     global SHOULD_EXIT
+
+    # Archive the previous log and prune old ones
+    _rotate_log()
 
     # Clean up any leftover stop file from a previous run
     try:
