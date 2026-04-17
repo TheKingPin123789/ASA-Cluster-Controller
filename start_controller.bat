@@ -44,7 +44,7 @@ if %ERRORLEVEL% neq 0 (
 cd /d "%~dp0controller"
 
 :: Start controller -- wizard runs here on first boot if no config.ini found
-start "ASA Cluster Controller" cmd /k python asa_cluster_controller.py
+start "ASA Cluster Controller" cmd /c python asa_cluster_controller.py
 
 :: Wait for config.ini before launching the dashboard
 echo Waiting for setup to complete...
@@ -55,7 +55,7 @@ if not exist "config.ini" (
 )
 
 :: Start dashboard
-start "ASA Dashboard" cmd /k python dashboard.py
+start "ASA Dashboard" cmd /c python dashboard.py
 
 :: Open browser
 timeout /t 2 >nul
