@@ -1255,8 +1255,8 @@ input::placeholder { color:#3d4a62; }
 const SCHEMA = [
   { group:'Cluster', sections:[
     { title:'Identity', fields:[
-      {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'e.g. MyCluster'},
-      {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'e.g. ChangeMe123'},
+      {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'MyCluster'},
+      {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'ChangeMe123'},
       {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
       {s:'network',    k:'rcon_host',      label:'RCON Host',      ph:'127.0.0.1'},
     ]},
@@ -1266,9 +1266,9 @@ const SCHEMA = [
       {s:'paths', k:'steamcmd_path', label:'SteamCMD Path', ph:'C:\\ASA_Cluster\\SteamCMD\\steamcmd.exe', wide:true},
     ]},
     { title:'Mods & Events', fields:[
-      {s:'mods',  k:'mod_ids',      label:'Mod IDs (comma-separated Steam IDs)', ph:'e.g. 12345,67890', wide:true},
+      {s:'mods',  k:'mod_ids',      label:'Mod IDs (comma-separated Steam IDs)', ph:'',      wide:true},
       {s:'mods',  k:'crossplay',    label:'Enable Crossplay (Epic + Steam)',      ph:'false'},
-      {s:'world', k:'active_event', label:'Active Event',                         ph:'e.g. FearEvolved, WinterWonderland, TurkeyTrial'},
+      {s:'world', k:'active_event', label:'Active Event',                         ph:''},
     ]},
   ]},
   { group:'Server', sections:[
@@ -1309,7 +1309,7 @@ const SCHEMA = [
       {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0',               hint:'✦ Rec: 1.5 — less grind'},
       {s:'rates', k:'harvest_amount_multiplier', label:'Harvest Amount',   ph:'1.0',               hint:'✦ Rec: 5.0 — less farming'},
       {s:'rates', k:'taming_speed_multiplier',   label:'Taming Speed',     ph:'1.0',               hint:'✦ Rec: 5.0 — reasonable tame times'},
-      {s:'rates', k:'difficulty_offset',         label:'Difficulty Offset',ph:'1.0  (max lvl 150)',hint:'✦ Rec: 1.0 — enables max lvl 150 dinos'},
+      {s:'rates', k:'difficulty_offset',         label:'Difficulty Offset',ph:'1.0',               hint:'✦ Rec: 1.0 — enables max lvl 150 dinos'},
       {s:'rates', k:'item_stack_size_multiplier',label:'Item Stack Size',  ph:'1.0',               hint:'✦ Rec: 5.0 — less inventory juggling'},
       {s:'rates', k:'crop_growth_speed_multiplier',label:'Crop Growth',    ph:'1.0',               hint:'✦ Rec: 5.0 — faster crops'},
     ]},
@@ -1430,7 +1430,8 @@ function render(data) {
       else if (sec.grid) wrap.className = 'grid2';
       else wrap.className = 'stack';
       for (const f of sec.fields) {
-        const val = esc((data[f.s] || {})[f.k] || '');
+        const saved = (data[f.s] || {})[f.k] || '';
+        const ph    = f.ph || '';
         const d = document.createElement('div');
         d.className = 'field' + (f.wide ? ' wide' : '');
         const hint = f.rec
@@ -1438,7 +1439,11 @@ function render(data) {
           : f.hint
             ? `<span class="breed-hint">${esc(f.hint)}</span>`
             : '';
-        d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="${val}" placeholder="${esc(f.ph||'')}">${hint}`;
+        // Show saved value only when it differs from the default placeholder,
+        // so fields appear empty (showing the default as grey placeholder text)
+        // until the user has explicitly set a custom value.
+        const val = (saved && saved !== ph) ? esc(saved) : '';
+        d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="${val}" placeholder="${esc(ph)}">${hint}`;
         wrap.appendChild(d);
       }
       groupEl.appendChild(wrap);
