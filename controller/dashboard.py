@@ -1213,6 +1213,12 @@ def get_defaults():
             "max_crash_restarts": "3",
             "crash_window_minutes": "60",
         },
+        "discord": {
+            "webhook_url": "",
+            "notify_server_events": "true",
+            "notify_crash_events": "true",
+            "notify_cluster_events": "true",
+        },
         "schedule": {
             "check_updates_on_startup": "true",
             "restart_time": "06:00",
@@ -1366,6 +1372,12 @@ const SCHEMA = [
       {s:'crash', k:'crash_cooldown_minutes', label:'Cooldown (min)',         ph:'5',     hint:'Minimum minutes between crash-restarts — prevents rapid restart loops'},
       {s:'crash', k:'max_crash_restarts',     label:'Max Restarts',          ph:'3',     hint:'Max times to restart within the window before giving up'},
       {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
+    ]},
+    { title:'Discord Notifications', grid:true, fields:[
+      {s:'discord', k:'webhook_url',           label:'Webhook URL',           ph:'https://discord.com/api/webhooks/...', wide:true, hint:'Paste your Discord channel webhook URL here — leave blank to disable'},
+      {s:'discord', k:'notify_server_events',  label:'Server Online/Offline', ph:'true',  hint:'Notify when a server comes online (true/false)'},
+      {s:'discord', k:'notify_crash_events',   label:'Crash Events',          ph:'true',  hint:'Notify on crash, auto-restart attempts, and crash limit reached (true/false)'},
+      {s:'discord', k:'notify_cluster_events', label:'Cluster Events',        ph:'true',  hint:'Notify on cluster restarts, shutdowns, and scheduled events (true/false)'},
     ]},
   ]},
   { group:'World & Rates', sections:[

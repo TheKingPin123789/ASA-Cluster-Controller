@@ -87,6 +87,12 @@ CRASH_COOLDOWN_MINUTES   = int(_ci("crash", "crash_cooldown_minutes",  "5"))
 MAX_CRASH_RESTARTS       = int(_ci("crash", "max_crash_restarts",      "3"))
 CRASH_WINDOW_MINUTES     = int(_ci("crash", "crash_window_minutes",    "60"))
 
+# ── Discord ───────────────────────────────────────────────────────────────────
+DISCORD_WEBHOOK_URL        = _ci("discord", "webhook_url",           "")
+DISCORD_NOTIFY_SERVER      = _ci("discord", "notify_server_events",  "true").lower() == "true"
+DISCORD_NOTIFY_CRASH       = _ci("discord", "notify_crash_events",   "true").lower() == "true"
+DISCORD_NOTIFY_CLUSTER     = _ci("discord", "notify_cluster_events", "true").lower() == "true"
+
 # ── Backup ────────────────────────────────────────────────────────────────────
 BACKUP_DIR  = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
 MAX_BACKUPS = int(_ci("backup", "max_backups", "10"))
@@ -320,6 +326,41 @@ def log(msg: str) -> None:
             f.write(line + "\n")
     except Exception:
         pass
+
+
+# Discord embed colour constants
+_DC_GREEN  = 3066993   # server online
+_DC_RED    = 15158332  # crash / offline
+_DC_ORANGE = 16744272  # warning / cooldown
+_DC_BLUE   = 3447003   # cluster restart
+_DC_GREY   = 10070709  # cluster shutdown
+
+
+def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
+    """Post a message to the Discord webhook. No-ops silently if not configured."""
+    # Re-read from _cfg each call so webhook URL / toggles take effect without restart
+    url = (_cfg.get("discord", "webhook_url") if _cfg.has_option("discord", "webhook_url") else "").strip()
+    if not url:
+        return
+    try:
+        embed: dict = {"description": message, "color": color}
+        if title:
+            embed["title"] = title
+        payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "ASA-Cluster-Controller"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5).close()
+    except Exception as exc:
+        log(f"Discord notify failed: {exc}")
+
+
+def _dc_flag(key: str, default: str = "true") -> bool:
+    """Read a discord toggle from config (re-read each call for live changes)."""
+    return (_cfg.get("discord", key) if _cfg.has_option("discord", key) else default).lower() == "true"
 
 
 def load_whitelist() -> set:
@@ -1109,6 +1150,10 @@ def cancel_manual_stop(target: ServerState) -> None:
 
 
 def perform_cluster_shutdown() -> None:
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** is shutting down ⛔\nAll servers will be stopped.",
+            _DC_GREY, "Cluster Shutdown")
     backup_world()
     log("Executing cluster shutdown")
     announce_all_online("Saving world...")
@@ -1162,6 +1207,10 @@ def schedule_cluster_shutdown(delay_seconds: int = 0) -> None:
     total_minutes = max(1, int(delay_seconds // 60))
     announce_all_online(f"Cluster shutdown scheduled in {total_minutes} minutes")
     log(f"Cluster shutdown scheduled in {total_minutes} minutes")
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** shutdown scheduled in **{total_minutes} minutes** ⏳",
+            _DC_GREY, "Cluster Shutdown Scheduled")
 
 
 def cancel_cluster_shutdown() -> None:
@@ -1177,6 +1226,10 @@ def cancel_cluster_shutdown() -> None:
 
 
 def perform_cluster_restart() -> None:
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** is restarting 🔄\nServers will be back shortly.",
+            _DC_BLUE, "Cluster Restart")
     backup_world()
     log("Executing cluster restart")
     announce_all_online("Server restarting. Saving world...")
@@ -1222,6 +1275,10 @@ def schedule_cluster_restart(delay_seconds: int = 0) -> None:
     total_minutes = max(1, int(delay_seconds // 60))
     announce_all_online(f"Server restart scheduled in {total_minutes} minutes")
     log(f"Server restart scheduled in {total_minutes} minutes")
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** restart scheduled in **{total_minutes} minutes** ⏳",
+            _DC_BLUE, "Cluster Restart Scheduled")
 
 
 def handle_admin_command(command: str) -> None:
@@ -1555,6 +1612,8 @@ def update_running_status(state: ServerState) -> None:
         if just_came_online and state.pending_online_announcement:
             announce_all_online(f"{state.cfg.display_name} is up and running")
             state.pending_online_announcement = False
+            if _dc_flag("notify_server_events"):
+                discord_notify(f"**{state.cfg.display_name}** is now online 🟢", _DC_GREEN)
 
         if state.last_autosave_at == 0:
             state.last_autosave_at = now
@@ -1602,6 +1661,10 @@ def update_running_status(state: ServerState) -> None:
             if not _auto:
                 log(f"AUTO-RESTART DISABLED: {state.cfg.key} will stay offline")
                 announce_all_online(f"{state.cfg.display_name} has crashed (auto-restart is disabled)")
+                if _dc_flag("notify_crash_events"):
+                    discord_notify(
+                        f"**{state.cfg.display_name}** has crashed 🔴\nAuto-restart is disabled — manual action required.",
+                        _DC_RED, "Server Crash")
                 return
 
             # Reset crash window counter if the window has expired
@@ -1620,6 +1683,11 @@ def update_running_status(state: ServerState) -> None:
                     f"{int(_window // 60)} min — staying offline")
                 announce_all_online(
                     f"{state.cfg.display_name} has crashed too many times and will stay offline")
+                if _dc_flag("notify_crash_events"):
+                    discord_notify(
+                        f"**{state.cfg.display_name}** has crashed {state.crash_restart_count}x in "
+                        f"{int(_window // 60)} minutes ⛔\nMax restart limit reached — staying offline. Manual intervention needed.",
+                        _DC_RED, "Crash Limit Reached")
                 return
 
             # Enforce cooldown between crash-restarts
@@ -1628,6 +1696,11 @@ def update_running_status(state: ServerState) -> None:
                 log(f"CRASH COOLDOWN: {state.cfg.key} — waiting {remaining}s before restart")
                 announce_all_online(
                     f"{state.cfg.display_name} has crashed — restarting in {remaining // 60 + 1} min")
+                if _dc_flag("notify_crash_events"):
+                    discord_notify(
+                        f"**{state.cfg.display_name}** has crashed 🔴\n"
+                        f"Restarting in {remaining // 60 + 1} minute(s) (cooldown).",
+                        _DC_ORANGE, "Server Crash")
                 # Mark as crash-offline so the cooldown retry block can pick
                 # it up later — but only if manually stopped will this clear.
                 state.crash_offline = True
@@ -1641,6 +1714,11 @@ def update_running_status(state: ServerState) -> None:
             announce_all_online(
                 f"{state.cfg.display_name} has crashed and is being restarted "
                 f"({state.crash_restart_count}/{_maxr})")
+            if _dc_flag("notify_crash_events"):
+                discord_notify(
+                    f"**{state.cfg.display_name}** has crashed and is being restarted 🔄 "
+                    f"({state.crash_restart_count}/{_maxr})",
+                    _DC_ORANGE, "Server Crash — Auto Restart")
             start_server(state.cfg.key)
             return
 
@@ -1693,6 +1771,11 @@ def update_running_status(state: ServerState) -> None:
                     announce_all_online(
                         f"{state.cfg.display_name} is being restarted after crash cooldown "
                         f"({state.crash_restart_count}/{_maxr2})")
+                    if _dc_flag("notify_crash_events"):
+                        discord_notify(
+                            f"**{state.cfg.display_name}** is being restarted after crash cooldown 🔄 "
+                            f"({state.crash_restart_count}/{_maxr2})",
+                            _DC_ORANGE, "Server Crash — Cooldown Retry")
                     start_server(state.cfg.key)
             state.manual_stop_duration_seconds = 0
 
