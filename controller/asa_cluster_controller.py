@@ -435,15 +435,6 @@ def _patch_game_user_settings() -> None:
         "StructureDamageMultiplier":               r("combat",     "structure_damage_multiplier",                            STRUCT_DAMAGE_MULT),
         "ShowFloatingDamageText":                  _b("combat",    "show_floating_damage_text",                              "false"),
         "AllowHitMarkers":                         _b("combat",    "allow_hit_markers",                                      "true"),
-        # ── Breeding ──────────────────────────────────────────────────────────
-        "MatingIntervalMultiplier":                r2("breeding",  "rates","mating_interval_multiplier",                     MATING_INTERVAL_MULT),
-        "MatingSpeedMultiplier":                   r2("breeding",  "rates","mating_speed_multiplier",                        MATING_SPEED_MULT),
-        "EggHatchSpeedMultiplier":                 r2("breeding",  "rates","egg_hatch_speed_multiplier",                     EGG_HATCH_SPEED_MULT),
-        "LayEggIntervalMultiplier":                r("breeding",   "lay_egg_interval_multiplier",                            LAY_EGG_INTERVAL_MULT),
-        "BabyMatureSpeedMultiplier":               r("breeding",   "baby_mature_speed_multiplier",                           BABY_MATURE_SPEED_MULT),
-        "BabyCuddleIntervalMultiplier":            r("breeding",   "baby_cuddle_interval_multiplier",                        BABY_CUDDLE_INTERVAL_MULT),
-        "BabyCuddleGracePeriodMultiplier":         r("breeding",   "baby_cuddle_grace_period_multiplier",                    BABY_CUDDLE_GRACE_PERIOD_MULT),
-        "BabyImprintAmountMultiplier":             r("breeding",   "baby_imprint_amount_multiplier",                         BABY_IMPRINT_AMOUNT_MULT),
         # ── Structures ────────────────────────────────────────────────────────
         "StructurePickupTimeAfterPlacement":       r("structures", "structure_pickup_time_after_placement",                  STRUCT_PICKUP_TIME),
         "PerPlatformMaxStructuresMultiplier":      r("structures", "per_platform_max_structures_multiplier",                 PER_PLATFORM_STRUCT),
