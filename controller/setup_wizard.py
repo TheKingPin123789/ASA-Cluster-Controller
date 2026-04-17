@@ -214,12 +214,14 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     print("  All files will be installed under a single base directory.")
     print()
 
-    # Derive default base from existing server_root if it ends with \asa_server
+    # Derive default base from existing server_root if it ends with \asa_server,
+    # otherwise default to the folder the controller itself lives in (one level up
+    # from the controller/ directory) so everything stays self-contained.
     _prev_root = prev_get("paths", "server_root", "")
     if _prev_root and os.path.basename(_prev_root).lower() == "asa_server":
         _default_base = os.path.dirname(_prev_root)
     else:
-        _default_base = r"C:\ASA_Cluster"
+        _default_base = str(Path(__file__).resolve().parent.parent)
 
     base_dir = _ask("Base installation directory", _default_base)
     server_root   = os.path.join(base_dir, "asa_server")
