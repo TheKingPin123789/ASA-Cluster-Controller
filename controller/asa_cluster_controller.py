@@ -418,11 +418,6 @@ def _patch_game_user_settings() -> None:
         "LootQualityMultiplier":                   r("rates",      "loot_quality_multiplier",                                LOOT_QUALITY_MULT),
         "FishingLootQualityMultiplier":            r("rates",      "fishing_loot_quality_multiplier",                        FISHING_LOOT_MULT),
         "SupplyCrateLootQualityMultiplier":        r("rates",      "supply_crate_loot_quality_multiplier",                   SUPPLY_CRATE_LOOT_MULT),
-        "GlobalSpoilingTimeMultiplier":            r("rates",      "global_spoiling_time_multiplier",                        GLOBAL_SPOILING_TIME_MULT),
-        "GlobalItemDecompositionTimeMultiplier":   r("rates",      "global_item_decomposition_time_multiplier",              GLOBAL_ITEM_DECOMP_MULT),
-        "GlobalCorpseDecompositionTimeMultiplier": r("rates",      "global_corpse_decomposition_time_multiplier",            GLOBAL_CORPSE_DECOMP_MULT),
-        "CropGrowthSpeedMultiplier":               r("rates",      "crop_growth_speed_multiplier",                           CROP_GROWTH_SPEED_MULT),
-        "FuelConsumptionIntervalMultiplier":       r("rates",      "fuel_consumption_interval_multiplier",                   FUEL_CONSUMPTION_MULT),
         # ── Survival ──────────────────────────────────────────────────────────
         "PlayerCharacterFoodDrainMultiplier":      r("survival",   "player_food_drain_multiplier",                           PLAYER_FOOD_DRAIN),
         "PlayerCharacterWaterDrainMultiplier":     r("survival",   "player_water_drain_multiplier",                          PLAYER_WATER_DRAIN),
@@ -559,6 +554,12 @@ def _patch_game_ini() -> None:
         "BabyCuddleIntervalMultiplier":    r( "breeding",          "baby_cuddle_interval_multiplier",    BABY_CUDDLE_INTERVAL_MULT),
         "BabyCuddleGracePeriodMultiplier": r( "breeding",          "baby_cuddle_grace_period_multiplier",BABY_CUDDLE_GRACE_PERIOD_MULT),
         "BabyImprintAmountMultiplier":     r( "breeding",          "baby_imprint_amount_multiplier",     BABY_IMPRINT_AMOUNT_MULT),
+        # ── Rates (Game.ini only) ─────────────────────────────────────────────
+        "GlobalSpoilingTimeMultiplier":            r("rates", "global_spoiling_time_multiplier",             GLOBAL_SPOILING_TIME_MULT),
+        "GlobalItemDecompositionTimeMultiplier":   r("rates", "global_item_decomposition_time_multiplier",   GLOBAL_ITEM_DECOMP_MULT),
+        "GlobalCorpseDecompositionTimeMultiplier": r("rates", "global_corpse_decomposition_time_multiplier", GLOBAL_CORPSE_DECOMP_MULT),
+        "CropGrowthSpeedMultiplier":               r("rates", "crop_growth_speed_multiplier",                CROP_GROWTH_SPEED_MULT),
+        "FuelConsumptionIntervalMultiplier":       r("rates", "fuel_consumption_interval_multiplier",        FUEL_CONSUMPTION_MULT),
     }
 
     section = "[/Script/ShooterGame.ShooterGameMode]"

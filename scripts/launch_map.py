@@ -120,11 +120,6 @@ def _patch_game_user_settings(cfg, server_root: str) -> None:
         "LootQualityMultiplier":                   _g(cfg, "rates","loot_quality_multiplier","1.0"),
         "FishingLootQualityMultiplier":            _g(cfg, "rates","fishing_loot_quality_multiplier","1.0"),
         "SupplyCrateLootQualityMultiplier":        _g(cfg, "rates","supply_crate_loot_quality_multiplier","1.0"),
-        "GlobalSpoilingTimeMultiplier":            _g(cfg, "rates","global_spoiling_time_multiplier","1.0"),
-        "GlobalItemDecompositionTimeMultiplier":   _g(cfg, "rates","global_item_decomposition_time_multiplier","1.0"),
-        "GlobalCorpseDecompositionTimeMultiplier": _g(cfg, "rates","global_corpse_decomposition_time_multiplier","1.0"),
-        "CropGrowthSpeedMultiplier":               _g(cfg, "rates","crop_growth_speed_multiplier","1.0"),
-        "FuelConsumptionIntervalMultiplier":       _g(cfg, "rates","fuel_consumption_interval_multiplier","1.0"),
         # Survival
         "PlayerCharacterFoodDrainMultiplier":      _g(cfg, "survival","player_food_drain_multiplier","1.0"),
         "PlayerCharacterWaterDrainMultiplier":     _g(cfg, "survival","player_water_drain_multiplier","1.0"),
@@ -176,6 +171,12 @@ def _patch_game_ini(cfg, server_root: str) -> None:
         "BabyCuddleIntervalMultiplier":    _g(cfg, "breeding","baby_cuddle_interval_multiplier","1.0"),
         "BabyCuddleGracePeriodMultiplier": _g(cfg, "breeding","baby_cuddle_grace_period_multiplier","1.0"),
         "BabyImprintAmountMultiplier":     _g(cfg, "breeding","baby_imprint_amount_multiplier","1.0"),
+        # Rates (Game.ini only)
+        "GlobalSpoilingTimeMultiplier":            _g(cfg, "rates","global_spoiling_time_multiplier","1.0"),
+        "GlobalItemDecompositionTimeMultiplier":   _g(cfg, "rates","global_item_decomposition_time_multiplier","1.0"),
+        "GlobalCorpseDecompositionTimeMultiplier": _g(cfg, "rates","global_corpse_decomposition_time_multiplier","1.0"),
+        "CropGrowthSpeedMultiplier":               _g(cfg, "rates","crop_growth_speed_multiplier","1.0"),
+        "FuelConsumptionIntervalMultiplier":       _g(cfg, "rates","fuel_consumption_interval_multiplier","1.0"),
     })
 
 
