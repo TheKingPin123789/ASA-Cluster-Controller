@@ -18,6 +18,15 @@ ADMIN_LIST_FILE         = os.path.join(BASE_DIR, "admin_list.txt")
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
+def _get_web_port() -> int:
+    """Read web_status_port from config.ini, defaulting to 5000."""
+    cfg = configparser.RawConfigParser()
+    try:
+        cfg.read(CONFIG_FILE, encoding="utf-8")
+        return int(cfg.get("network", "web_status_port"))
+    except Exception:
+        return 5000
+
 # ---------------------------------------------------------------------------
 # HTML dashboard
 # ---------------------------------------------------------------------------
@@ -1507,5 +1516,6 @@ def settings_page():
 
 
 if __name__ == "__main__":
-    print(f"Dashboard running at http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    port = _get_web_port()
+    print(f"Dashboard running at http://localhost:{port}")
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
