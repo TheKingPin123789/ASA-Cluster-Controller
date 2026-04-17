@@ -805,9 +805,12 @@ function renderCards(data) {
 
   const container = document.getElementById('cards');
   for (const [key, s] of Object.entries(data.servers)) {
-    const cls   = s.is_running ? 'online' : (s.is_starting ? 'starting' : 'offline');
-    const label = s.is_running ? 'Online' : (s.is_starting ? 'Starting' : 'Offline');
+    const cls    = s.is_running ? 'online' : (s.is_starting ? 'starting' : 'offline');
+    const label  = s.is_running ? 'Online' : (s.is_starting ? 'Starting' : 'Offline');
     const players = s.is_running ? s.player_count + ' / ' + (data.max_players || 70) + ' player(s)' : '';
+    const crashBadge = (s.crash_restart_count > 0)
+      ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
+      : '';
 
     if (cardEls[key]) {
       const c = cardEls[key];
@@ -815,6 +818,7 @@ function renderCards(data) {
       c.querySelector('.badge').className = 'badge ' + cls;
       c.querySelector('.badge').textContent = label;
       c.querySelector('.card-players').textContent = players;
+      c.querySelector('.card-crash').innerHTML = crashBadge;
       c.querySelector('.btn-start').disabled   = s.is_running || s.is_starting;
       c.querySelector('.btn-stop').disabled    = !s.is_running;
       c.querySelector('.btn-restart').disabled = !s.is_running;
@@ -827,7 +831,10 @@ function renderCards(data) {
           <span class="card-name">${s.display_name}</span>
           <span class="badge ${cls}">${label}</span>
         </div>
-        <div class="card-players">${players}</div>
+        <div style="display:flex;align-items:center;min-height:16px;">
+          <span class="card-players">${players}</span>
+          <span class="card-crash">${crashBadge}</span>
+        </div>
         <div class="card-btns">
           <button class="btn btn-bright-green  btn-sm btn-start"   onclick="cardAction('${key}','start')"   ${s.is_running||s.is_starting?'disabled':''}>Start</button>
           <button class="btn btn-bright-red    btn-sm btn-stop"    onclick="cardAction('${key}','stop')"    ${!s.is_running?'disabled':''}>Stop</button>
@@ -1199,6 +1206,12 @@ def get_defaults():
             "max_backups": "10",
             "max_logs": "10",
         },
+        "crash": {
+            "auto_restart_on_crash": "true",
+            "crash_cooldown_minutes": "5",
+            "max_crash_restarts": "3",
+            "crash_window_minutes": "60",
+        },
         "schedule": {
             "check_updates_on_startup": "true",
             "restart_time": "06:00",
@@ -1345,6 +1358,12 @@ const SCHEMA = [
       {s:'backup', k:'backup_dir',   label:'Backup Directory', ph:'C:\\ASA_Cluster\\backups', wide:true},
       {s:'backup', k:'max_backups',  label:'Max Backups',       ph:'10'},
       {s:'backup', k:'max_logs',     label:'Max Saved Logs',    ph:'10', hint:'Logs are archived on each restart — oldest deleted when over this limit'},
+    ]},
+    { title:'Auto-Restart on Crash', grid:true, fields:[
+      {s:'crash', k:'auto_restart_on_crash',  label:'Auto-Restart on Crash', ph:'true',  hint:'Automatically restart a server if it crashes (true/false)'},
+      {s:'crash', k:'crash_cooldown_minutes', label:'Cooldown (min)',         ph:'5',     hint:'Minimum minutes between crash-restarts — prevents rapid restart loops'},
+      {s:'crash', k:'max_crash_restarts',     label:'Max Restarts',          ph:'3',     hint:'Max times to restart within the window before giving up'},
+      {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
     ]},
   ]},
   { group:'World & Rates', sections:[

@@ -81,6 +81,12 @@ POST_SHUTDOWN_WAIT_SECONDS      = int(_ci("timers", "post_shutdown_wait_seconds"
 CRASH_DETECTION_THRESHOLD       = int(_ci("timers", "crash_detection_threshold",     "5"))
 SHUTDOWN_WARNING_MINUTES        = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 
+# ── Auto-restart on crash ─────────────────────────────────────────────────────
+AUTO_RESTART_ON_CRASH    = _ci("crash", "auto_restart_on_crash",  "true").lower() == "true"
+CRASH_COOLDOWN_MINUTES   = int(_ci("crash", "crash_cooldown_minutes",  "5"))
+MAX_CRASH_RESTARTS       = int(_ci("crash", "max_crash_restarts",      "3"))
+CRASH_WINDOW_MINUTES     = int(_ci("crash", "crash_window_minutes",    "60"))
+
 # ── Backup ────────────────────────────────────────────────────────────────────
 BACKUP_DIR  = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
 MAX_BACKUPS = int(_ci("backup", "max_backups", "10"))
@@ -263,6 +269,10 @@ class ServerState:
     rcon_fail_count: int = 0
     pending_restart: bool = False
     player_list: List[Dict] = field(default_factory=list)
+    # ── Crash restart tracking ──────────────────────────────────────────────
+    crash_restart_count: int = 0
+    last_crash_restart_at: Optional[float] = None
+    crash_window_start: Optional[float] = None
 
 
 @dataclass
@@ -1540,8 +1550,7 @@ def update_running_status(state: ServerState) -> None:
                 return  # not enough failures yet — keep waiting
 
             # Threshold reached — crash detected
-            log(f"CRASH DETECTED: {state.cfg.key} ({state.rcon_fail_count} consecutive RCON failures) — restarting")
-            announce_all_online(f"{state.cfg.display_name} has crashed and is being restarted")
+            log(f"CRASH DETECTED: {state.cfg.key} ({state.rcon_fail_count} consecutive RCON failures)")
             state.is_running = False
             state.is_starting = False
             state.players.clear()
@@ -1554,6 +1563,54 @@ def update_running_status(state: ServerState) -> None:
             state.manual_stop_duration_seconds = 0
             state.rcon_fail_count = 0
             state.seen_log_lines.clear()
+
+            # ── Auto-restart logic ────────────────────────────────────────
+            _lr = lambda s, k, d: (_cfg.get(s, k) if _cfg.has_option(s, k) else d)
+            _auto   = _lr("crash", "auto_restart_on_crash", "true").lower() == "true"
+            _cool   = int(_lr("crash", "crash_cooldown_minutes", "5"))  * 60
+            _maxr   = int(_lr("crash", "max_crash_restarts",     "3"))
+            _window = int(_lr("crash", "crash_window_minutes",   "60")) * 60
+
+            if not _auto:
+                log(f"AUTO-RESTART DISABLED: {state.cfg.key} will stay offline")
+                announce_all_online(f"{state.cfg.display_name} has crashed (auto-restart is disabled)")
+                return
+
+            # Reset crash window counter if the window has expired
+            if state.crash_window_start and (now - state.crash_window_start) > _window:
+                state.crash_restart_count = 0
+                state.crash_window_start  = None
+
+            # Start crash window on first crash
+            if state.crash_window_start is None:
+                state.crash_window_start = now
+
+            # Check max restarts within the window
+            if state.crash_restart_count >= _maxr:
+                log(f"CRASH LIMIT REACHED: {state.cfg.key} has crashed "
+                    f"{state.crash_restart_count}x in the last "
+                    f"{int(_window // 60)} min — staying offline")
+                announce_all_online(
+                    f"{state.cfg.display_name} has crashed too many times and will stay offline")
+                return
+
+            # Enforce cooldown between crash-restarts
+            if state.last_crash_restart_at and (now - state.last_crash_restart_at) < _cool:
+                remaining = int(_cool - (now - state.last_crash_restart_at))
+                log(f"CRASH COOLDOWN: {state.cfg.key} — waiting {remaining}s before restart")
+                announce_all_online(
+                    f"{state.cfg.display_name} has crashed — restarting in {remaining // 60 + 1} min")
+                # Don't restart yet; the server stays offline and the next
+                # poll will retry once the cooldown expires naturally.
+                return
+
+            # All checks passed — restart
+            state.crash_restart_count    += 1
+            state.last_crash_restart_at   = now
+            log(f"CRASH RESTART {state.crash_restart_count}/{_maxr}: {state.cfg.key}")
+            announce_all_online(
+                f"{state.cfg.display_name} has crashed and is being restarted "
+                f"({state.crash_restart_count}/{_maxr})")
             start_server(state.cfg.key)
             return
 
@@ -1575,6 +1632,32 @@ def update_running_status(state: ServerState) -> None:
             state.empty_since = None
             state.manual_stop_since = None
             state.manual_stop_last_announcement_remaining = None
+
+            # ── Crash cooldown retry ──────────────────────────────────────
+            # If the server went offline due to a crash cooldown, retry
+            # the restart once the cooldown window has elapsed.
+            if state.last_crash_restart_at is not None:
+                _lr2    = lambda s, k, d: (_cfg.get(s, k) if _cfg.has_option(s, k) else d)
+                _auto2  = _lr2("crash", "auto_restart_on_crash", "true").lower() == "true"
+                _cool2  = int(_lr2("crash", "crash_cooldown_minutes", "5")) * 60
+                _maxr2  = int(_lr2("crash", "max_crash_restarts",     "3"))
+                _win2   = int(_lr2("crash", "crash_window_minutes",   "60")) * 60
+                _exp    = (state.crash_window_start is not None and (now - state.crash_window_start) > _win2)
+                _ok_cnt = _exp or (state.crash_restart_count < _maxr2)
+                _ok_cd  = (now - state.last_crash_restart_at) >= _cool2
+                if _auto2 and _ok_cnt and _ok_cd:
+                    if _exp:
+                        state.crash_restart_count = 0
+                        state.crash_window_start  = None
+                    log(f"CRASH COOLDOWN EXPIRED: retrying {state.cfg.key}")
+                    state.crash_restart_count   += 1
+                    state.last_crash_restart_at  = now
+                    if state.crash_window_start is None:
+                        state.crash_window_start = now
+                    announce_all_online(
+                        f"{state.cfg.display_name} is being restarted after crash cooldown "
+                        f"({state.crash_restart_count}/{_maxr2})")
+                    start_server(state.cfg.key)
             state.manual_stop_duration_seconds = 0
 
 
@@ -1773,6 +1856,7 @@ def write_cluster_status() -> None:
             "manual_stop_in": shutdown_in,
             "pending_restart": state.pending_restart,
             "player_list": state.player_list,
+            "crash_restart_count": state.crash_restart_count,
         }
 
     cluster_shutdown_in = None
