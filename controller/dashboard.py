@@ -1570,15 +1570,7 @@ load();
 
 @app.route("/api/restart/controller", methods=["POST"])
 def restart_controller():
-    """Close the controller CMD window (by parent PID) then re-launch it."""
-    try:
-        with open(CONTROLLER_PID_FILE) as f:
-            pid = int(f.read().strip())
-        # Kill the cmd.exe window — this closes the window and Python together
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
-    except Exception as exc:
-        return jsonify({"error": f"Could not kill controller: {exc}"}), 500
-
+    """Close the controller CMD window then re-launch it."""
     bat = os.path.join(ROOT_DIR, "restart_controller.bat")
     try:
         subprocess.Popen(
@@ -1624,10 +1616,10 @@ def settings_page():
 if __name__ == "__main__":
     import socket
 
-    # Write the parent cmd.exe PID so restart scripts can close the entire window
+    # Write Python PID so restart scripts can find and close the CMD window
     try:
         with open(DASHBOARD_PID_FILE, "w") as _pf:
-            _pf.write(str(os.getppid()))
+            _pf.write(str(os.getpid()))
     except Exception:
         pass
 
