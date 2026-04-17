@@ -1135,9 +1135,12 @@ def get_defaults():
             "cluster_dir": r"C:\ASA_Cluster\asa_server\cluster",
             "steamcmd_path": r"C:\ASA_Cluster\SteamCMD\steamcmd.exe",
         },
-        "performance": {
+        "limits": {
             "max_active_servers": "3",
             "max_players": "70",
+            "max_tamed_dinos": "5000",
+            "max_personal_tamed_dinos": "40",
+            "low_memory_mode": "true",
         },
         "timers": {
             "poll_seconds": "5",
