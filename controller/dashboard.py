@@ -1300,10 +1300,10 @@ const SCHEMA = [
   ]},
   { group:'World & Rates', sections:[
     { title:'World', grid:true, fields:[
-      {s:'world', k:'day_time_speed_scale',               label:'Day Speed',                ph:'1.0',  hint:'✦ Rec: 1.0 — vanilla day length'},
-      {s:'world', k:'night_time_speed_scale',             label:'Night Speed',              ph:'1.0',  hint:'✦ Rec: 3.0 — shorter nights'},
-      {s:'world', k:'dino_count_multiplier',              label:'Wild Dino Count',          ph:'1.0',  hint:'✦ Rec: 1.0–1.5 — more wildlife'},
-      {s:'world', k:'resources_respawn_period_multiplier',label:'Resources Respawn',        ph:'1.0',  hint:'✦ Rec: 0.5 — faster respawn (lower = quicker)'},
+      {s:'world', k:'day_time_speed_scale',               label:'Day Speed',                ph:'1.0'},
+      {s:'world', k:'night_time_speed_scale',             label:'Night Speed',              ph:'1.0'},
+      {s:'world', k:'dino_count_multiplier',              label:'Wild Dino Count',          ph:'1.0'},
+      {s:'world', k:'resources_respawn_period_multiplier',label:'Resources Respawn',        ph:'1.0'},
     ]},
     { title:'Experience & Gathering', grid3:true, fields:[
       {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0',               hint:'✦ Rec: 1.5 — less grind'},
@@ -1319,22 +1319,22 @@ const SCHEMA = [
       {s:'rates', k:'supply_crate_loot_quality_multiplier',  label:'Supply Crate',    ph:'1.0', hint:'✦ Rec: 3.0 — rewarding drops'},
     ]},
     { title:'Decay & Fuel', grid3:true, fields:[
-      {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0', hint:'✦ Rec: 1.0 — vanilla spoiling'},
-      {s:'rates', k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla item decay'},
-      {s:'rates', k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp',   ph:'1.0', hint:'✦ Rec: 1.0 — vanilla corpse decay'},
-      {s:'rates', k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption',ph:'1.0', hint:'✦ Rec: 5.0 — less refuelling'},
+      {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0'},
+      {s:'rates', k:'global_item_decomposition_time_multiplier',   label:'Item Decomp',     ph:'1.0'},
+      {s:'rates', k:'global_corpse_decomposition_time_multiplier', label:'Corpse Decomp',   ph:'1.0'},
+      {s:'rates', k:'fuel_consumption_interval_multiplier',        label:'Fuel Consumption',ph:'1.0'},
     ]},
   ]},
   { group:'Survival', sections:[
     { title:'Player Stats', grid:true, fields:[
-      {s:'survival', k:'player_food_drain_multiplier',      label:'Food Drain',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla hunger'},
-      {s:'survival', k:'player_water_drain_multiplier',     label:'Water Drain',    ph:'1.0', hint:'✦ Rec: 1.0 — vanilla thirst'},
-      {s:'survival', k:'player_stamina_drain_multiplier',   label:'Stamina Drain',  ph:'1.0', hint:'✦ Rec: 1.0 — vanilla stamina'},
-      {s:'survival', k:'player_health_recovery_multiplier', label:'Health Regen',   ph:'1.0', hint:'✦ Rec: 1.0 — vanilla health regen'},
+      {s:'survival', k:'player_food_drain_multiplier',      label:'Food Drain',     ph:'1.0'},
+      {s:'survival', k:'player_water_drain_multiplier',     label:'Water Drain',    ph:'1.0'},
+      {s:'survival', k:'player_stamina_drain_multiplier',   label:'Stamina Drain',  ph:'1.0'},
+      {s:'survival', k:'player_health_recovery_multiplier', label:'Health Regen',   ph:'1.0'},
     ]},
     { title:'Dino Stats', grid:true, fields:[
-      {s:'survival', k:'dino_food_drain_multiplier',        label:'Dino Food Drain',  ph:'1.0', hint:'✦ Rec: 1.0 — vanilla dino hunger'},
-      {s:'survival', k:'dino_health_recovery_multiplier',   label:'Dino Health Regen',ph:'1.0', hint:'✦ Rec: 1.0 — vanilla dino regen'},
+      {s:'survival', k:'dino_food_drain_multiplier',        label:'Dino Food Drain',  ph:'1.0'},
+      {s:'survival', k:'dino_health_recovery_multiplier',   label:'Dino Health Regen',ph:'1.0'},
     ]},
     { title:'Combat', grid:true, fields:[
       {s:'combat', k:'player_damage_multiplier',        label:'Player Damage',         ph:'1.0', hint:'✦ Rec: 1.5 — players hit harder'},
