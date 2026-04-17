@@ -1516,6 +1516,17 @@ def settings_page():
 
 
 if __name__ == "__main__":
+    import socket
     port = _get_web_port()
+    try:
+        # Probe the port before Flask tries to bind — gives a clear error message
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("0.0.0.0", port))
+    except OSError:
+        print(f"ERROR: Port {port} is already in use.")
+        print(f"       Either stop the process using port {port}, or change")
+        print(f"       'web_status_port' in controller/config.ini to a free port.")
+        input("\nPress Enter to close...")
+        raise SystemExit(1)
     print(f"Dashboard running at http://localhost:{port}")
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
