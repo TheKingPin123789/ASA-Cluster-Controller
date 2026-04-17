@@ -186,7 +186,7 @@ def _make_servers() -> Dict[str, ServerConfig]:
         ("valguero",       "Valguero",       "Valguero_WP",       7797,      27035,      27022),
         ("theisland",      "The Island",     "TheIsland_WP",      7807,      27045,      27023),
         ("scorchedearth",  "Scorched Earth", "ScorchedEarth_WP",  7817,      27055,      27024),
-        ("aberration",     "Aberration",     "Aberration_WP",     7827,      27065,      27025),
+        ("aberration",     "Aberration",     "Aberration_WP",     7827,      27065,      27029),
         ("extinction",     "Extinction",     "Extinction_WP",     7837,      27075,      27026),
         ("lostcolony",     "Lost Colony",    "LostColony_WP",     7847,      27085,      27027),
         ("astraeos",       "Astraeos",       "Astraeos_WP",       7857,      27095,      27028),
