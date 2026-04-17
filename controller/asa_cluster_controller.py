@@ -365,13 +365,14 @@ class DiscordBot:
     # ── startup ──────────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Spin the bot up in a daemon thread. Silent no-op if not configured."""
+        """Spin the bot up in a daemon thread. Silent no-op if not configured or use_bot=false."""
+        use_bot  = (_cfg.get("discord", "use_bot")                 if _cfg.has_option("discord", "use_bot")                 else "false").strip().lower() == "true"
         token    = (_cfg.get("discord", "bot_token")               if _cfg.has_option("discord", "bot_token")               else "").strip()
         notif_id = (_cfg.get("discord", "notification_channel_id") if _cfg.has_option("discord", "notification_channel_id") else "").strip()
         cmd_id   = (_cfg.get("discord", "command_channel_id")      if _cfg.has_option("discord", "command_channel_id")      else "").strip()
 
-        if not token or not notif_id:
-            return  # not configured — stay silent
+        if not use_bot or not token or not notif_id:
+            return  # webhook mode or not configured — stay silent
 
         try:
             self._notif_channel_id = int(notif_id)
@@ -535,8 +536,31 @@ DISCORD_BOT = DiscordBot()
 
 
 def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
-    """Thin wrapper so call sites don't need to know about the bot instance."""
-    DISCORD_BOT.send(message, color, title)
+    """Send a Discord notification via bot or webhook depending on config."""
+    use_bot = (_cfg.get("discord", "use_bot") if _cfg.has_option("discord", "use_bot") else "false").strip().lower() == "true"
+
+    if use_bot:
+        DISCORD_BOT.send(message, color, title)
+        return
+
+    # Webhook fallback
+    url = (_cfg.get("discord", "webhook_url") if _cfg.has_option("discord", "webhook_url") else "").strip()
+    if not url:
+        return
+    try:
+        embed: dict = {"description": message, "color": color}
+        if title:
+            embed["title"] = title
+        payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "ASA-Cluster-Controller"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5).close()
+    except Exception as exc:
+        log(f"Discord webhook failed: {exc}")
 
 
 def load_whitelist() -> set:

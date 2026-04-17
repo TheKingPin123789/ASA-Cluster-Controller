@@ -1214,6 +1214,8 @@ def get_defaults():
             "crash_window_minutes": "60",
         },
         "discord": {
+            "use_bot": "false",
+            "webhook_url": "",
             "bot_token": "",
             "notification_channel_id": "",
             "command_channel_id": "",
@@ -1302,6 +1304,18 @@ input:focus { outline:none; border-color:#3b4a7a; }
 .sec-head:first-child { margin-top:0; }
 input::placeholder { color:#3d4a62; }
 .breed-hint { font-size:12px; color:#4ade80; display:block; margin-top:3px; }
+
+/* Toggle switch */
+.toggle-label { display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none; font-size:14px; padding:4px 0; }
+.toggle-cb { display:none; }
+.toggle-track { width:42px; height:22px; background:#374151; border-radius:11px; position:relative; flex-shrink:0; transition:background .2s; }
+.toggle-thumb { width:18px; height:18px; background:#fff; border-radius:50%; position:absolute; top:2px; left:2px; transition:left .2s; }
+.toggle-cb:checked + .toggle-track { background:#3b82f6; }
+.toggle-cb:checked + .toggle-track .toggle-thumb { left:22px; }
+
+/* Info box */
+.info-box { background:#1a2540; border:1px solid #3b4a7a; border-radius:6px; padding:12px 14px; font-size:13px; line-height:1.7; color:#c9d1e0; }
+.info-box b { color:#93c5fd; }
 </style>
 </head>
 <body>
@@ -1376,14 +1390,34 @@ const SCHEMA = [
       {s:'crash', k:'max_crash_restarts',     label:'Max Restarts',          ph:'3',     hint:'Max times to restart within the window before giving up'},
       {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
     ]},
-    { title:'Discord Bot', grid:true, fields:[
-      {s:'discord', k:'bot_token',                label:'Bot Token',                 ph:'your-bot-token-here',    wide:true, hint:'From Discord Developer Portal → Your App → Bot → Token'},
-      {s:'discord', k:'notification_channel_id',  label:'Notification Channel ID',   ph:'123456789012345678',     hint:'Channel where the bot posts server events — right-click channel → Copy Channel ID'},
-      {s:'discord', k:'command_channel_id',        label:'Command Channel ID',        ph:'123456789012345678',     hint:'Channel where admins type !commands — leave blank to use the notification channel'},
-      {s:'discord', k:'admin_role_name',           label:'Admin Role Name',           ph:'Admin',                  hint:'Discord role required to use bot commands'},
-      {s:'discord', k:'notify_server_events',      label:'Notify: Server Online',     ph:'true',                   hint:'Post when a server comes online (true/false)'},
-      {s:'discord', k:'notify_crash_events',       label:'Notify: Crash Events',      ph:'true',                   hint:'Post on crash, auto-restart, and crash limit reached (true/false)'},
-      {s:'discord', k:'notify_cluster_events',     label:'Notify: Cluster Events',    ph:'true',                   hint:'Post on cluster restarts, shutdowns, and scheduled events (true/false)'},
+    { title:'Discord Notifications', fields:[
+      {s:'discord', k:'use_bot', label:'Enable Two-Way Bot (advanced)', type:'checkbox', ph:'false',
+        hint:'Off = simple webhook (one-way notifications). On = full Discord bot with commands from Discord.'},
+      {s:'discord', k:'webhook_url', label:'Webhook URL', ph:'https://discord.com/api/webhooks/...', wide:true, visGroup:'webhook',
+        hint:'Paste your Discord channel webhook URL — Discord → channel settings → Integrations → Webhooks → New Webhook → Copy URL'},
+    ]},
+    { title:'Notification Events', grid:true, fields:[
+      {s:'discord', k:'notify_server_events',  label:'Server Online',  ph:'true', hint:'Notify when a server comes online'},
+      {s:'discord', k:'notify_crash_events',   label:'Crash Events',   ph:'true', hint:'Notify on crash, auto-restart, and crash limit reached'},
+      {s:'discord', k:'notify_cluster_events', label:'Cluster Events', ph:'true', hint:'Notify on cluster restarts, shutdowns, and scheduled events'},
+    ]},
+    { title:'Bot Setup (Two-Way)', fields:[
+      {type:'info', visGroup:'bot', html:`
+        <b>How to set up the Discord bot:</b><br>
+        1. Go to <a href="https://discord.com/developers/applications" target="_blank" style="color:#93c5fd">discord.com/developers/applications</a> → New Application<br>
+        2. Go to <b>Bot</b> → enable <b>Message Content Intent</b> → copy the <b>Token</b><br>
+        3. Go to <b>OAuth2 → URL Generator</b> → tick <b>bot</b> scope → tick <b>Send Messages, Embed Links, Read Message History</b> → copy the URL → paste in browser to invite the bot to your server<br>
+        4. In Discord: User Settings → Advanced → enable <b>Developer Mode</b> → right-click a channel → <b>Copy Channel ID</b><br>
+        5. Fill in the fields below and save
+      `},
+      {s:'discord', k:'bot_token',               label:'Bot Token',               ph:'your-bot-token-here', wide:true, visGroup:'bot',
+        hint:'From Discord Developer Portal → Your App → Bot → Token'},
+      {s:'discord', k:'notification_channel_id', label:'Notification Channel ID', ph:'123456789012345678',   visGroup:'bot',
+        hint:'Channel where the bot posts events — right-click channel → Copy Channel ID'},
+      {s:'discord', k:'command_channel_id',      label:'Command Channel ID',      ph:'123456789012345678',   visGroup:'bot',
+        hint:'Channel where admins type !commands — leave blank to use the notification channel'},
+      {s:'discord', k:'admin_role_name',         label:'Admin Role Name',         ph:'Admin',                visGroup:'bot',
+        hint:'Discord role name required to use bot commands (e.g. Admin)'},
     ]},
   ]},
   { group:'World & Rates', sections:[
@@ -1519,17 +1553,33 @@ function render(data) {
       else wrap.className = 'stack';
       for (const f of sec.fields) {
         const saved = (data[f.s] || {})[f.k] || '';
-        // Placeholder shows the config.ini value if set, otherwise the hardcoded default
         const ph    = saved || f.ph || '';
         const d = document.createElement('div');
-        d.className = 'field' + (f.wide ? ' wide' : '');
+        let cls = 'field' + (f.wide ? ' wide' : '');
+        if (f.visGroup) cls += ' vis-group-' + f.visGroup;
+        d.className = cls;
+        if (f.visGroup) d.dataset.visGroup = f.visGroup;
+
         const hint = f.rec
           ? `<span class="breed-hint" data-rec="${f.rec}"></span>`
           : f.hint
             ? `<span class="breed-hint">${esc(f.hint)}</span>`
             : '';
-        // Field is always empty — placeholder shows the current config value
-        d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+
+        if (f.type === 'checkbox') {
+          // Checkbox toggle — value stored as "true"/"false" string in config
+          const checked = (saved || f.ph || 'false').trim().toLowerCase() === 'true';
+          d.innerHTML = `<label class="toggle-label">
+            <input type="checkbox" class="toggle-cb" data-s="${f.s}" data-k="${f.k}"${checked ? ' checked' : ''}
+              onchange="onDiscordToggle(this)">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            ${esc(f.label)}
+          </label>${hint}`;
+        } else if (f.type === 'info') {
+          d.innerHTML = `<div class="info-box">${f.html}</div>`;
+        } else {
+          d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+        }
         wrap.appendChild(d);
       }
       groupEl.appendChild(wrap);
@@ -1561,6 +1611,25 @@ function wireBreedingHints() {
   }
 }
 
+// ── Discord webhook / bot toggle ────────────────────────────────────────────
+function applyDiscordVisibility(botEnabled) {
+  document.querySelectorAll('[data-vis-group="webhook"]').forEach(el => {
+    el.style.display = botEnabled ? 'none' : '';
+  });
+  document.querySelectorAll('[data-vis-group="bot"]').forEach(el => {
+    el.style.display = botEnabled ? '' : 'none';
+  });
+}
+
+function onDiscordToggle(cb) {
+  applyDiscordVisibility(cb.checked);
+}
+
+function wireDiscordToggle() {
+  const cb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
+  if (cb) applyDiscordVisibility(cb.checked);
+}
+
 async function load() {
   let data = {};
   try {
@@ -1575,14 +1644,21 @@ async function load() {
   buildTabBar();
   render(data);
   wireBreedingHints();
+  wireDiscordToggle();
 }
 
 async function save() {
   const payload = {};
   document.querySelectorAll('#form input').forEach(i => {
     const s = i.dataset.s, k = i.dataset.k;
+    if (!s || !k) return;
     if (!payload[s]) payload[s] = {};
-    payload[s][k] = i.value || i.placeholder;
+    // Checkboxes store "true"/"false" strings
+    if (i.type === 'checkbox') {
+      payload[s][k] = i.checked ? 'true' : 'false';
+    } else {
+      payload[s][k] = i.value || i.placeholder;
+    }
   });
   const r = await fetch('/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
