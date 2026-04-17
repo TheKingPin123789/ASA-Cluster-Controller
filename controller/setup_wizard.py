@@ -224,7 +224,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     base_dir = _ask("Base installation directory", _default_base)
     server_root   = os.path.join(base_dir, "asa_server")
     cluster_dir   = os.path.join(base_dir, "asa_server", "cluster")
-    steamcmd_path = os.path.join(base_dir, "SteamCMD", "steamcmd.exe")
+    steamcmd_path = r"C:\SteamCMD\steamcmd.exe"
 
     print(f"  → Server root : {server_root}")
     print(f"  → Cluster dir : {cluster_dir}")

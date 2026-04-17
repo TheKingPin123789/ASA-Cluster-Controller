@@ -52,7 +52,7 @@ CLUSTER_ID     = CLUSTER_NAME.replace(" ", "") + "Cluster"
 RCON_PASSWORD  = _ci("cluster", "rcon_password", "ChangeMe123")
 SERVER_ROOT    = _ci("paths",   "server_root",   r"C:\asa_server")
 CLUSTER_DIR    = _ci("paths",   "cluster_dir",   rf"{SERVER_ROOT}\cluster")
-STEAMCMD_EXE   = _ci("paths",   "steamcmd_path", r"C:\ASA_Cluster\SteamCMD\steamcmd.exe")
+STEAMCMD_EXE   = _ci("paths",   "steamcmd_path", r"C:\SteamCMD\steamcmd.exe")
 HOST           = _ci("network", "rcon_host",     "127.0.0.1")
 DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "ragnarok")
 
