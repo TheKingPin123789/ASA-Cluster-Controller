@@ -184,15 +184,6 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
       <span id="status-line">Connecting...</span>
       <span id="restart-timer" style="font-size:14px; font-family:Consolas,monospace;"></span>
     </div>
-    <!-- Process restart buttons -->
-    <div style="display:flex; gap:5px;">
-      <button onclick="restartProcess('controller')" title="Restart Controller process"
-              style="background:#1e2a1e; border:1px solid #2d6a2d; color:#4ade80; cursor:pointer; font-size:11px; padding:3px 8px; border-radius:4px; white-space:nowrap;"
-              onmouseover="this.style.background='#2d6a2d'" onmouseout="this.style.background='#1e2a1e'">↺ Controller</button>
-      <button onclick="restartProcess('dashboard')" title="Restart Dashboard process"
-              style="background:#1e2038; border:1px solid #2d4a8a; color:#93c5fd; cursor:pointer; font-size:11px; padding:3px 8px; border-radius:4px; white-space:nowrap;"
-              onmouseover="this.style.background='#2d4a8a'" onmouseout="this.style.background='#1e2038'">↺ Dashboard</button>
-    </div>
     <button onclick="openSettings()" title="Settings"
             style="background:none; border:none; cursor:pointer; font-size:20px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px;"
             onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#6b7280'">⚙</button>
@@ -228,6 +219,12 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
         <div class="grid2">
           <button class="btn btn-blue btn-full" onclick="cmd('save all')">Save All</button>
           <button class="btn btn-blue btn-full" onclick="cmd('backup now')">Backup Now</button>
+          <button class="btn btn-full" onclick="restartProcess('controller')"
+                  style="background:#1e2a1e; border:1px solid #2d6a2d; color:#4ade80;"
+                  onmouseover="this.style.background='#2d6a2d'" onmouseout="this.style.background='#1e2a1e'">↺ Restart Controller</button>
+          <button class="btn btn-full" onclick="restartProcess('dashboard')"
+                  style="background:#1e2038; border:1px solid #2d4a8a; color:#93c5fd;"
+                  onmouseover="this.style.background='#2d4a8a'" onmouseout="this.style.background='#1e2038'">↺ Restart Dashboard</button>
         </div>
       </div>
 

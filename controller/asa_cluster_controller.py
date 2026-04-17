@@ -751,10 +751,13 @@ def start_server(key: str) -> bool:
     if _active_event:   flags.append(f"-ActiveEvent={_active_event}")
 
     log(f"Starting {key}")
+    # CREATE_BREAKAWAY_FROM_JOB (0x01000000) ensures the server process is
+    # fully detached from the controller's job object so it keeps running
+    # if the controller is restarted or killed.
     subprocess.Popen(
         [exe, map_arg] + flags,
         cwd=os.path.dirname(exe),
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        creationflags=subprocess.CREATE_NEW_CONSOLE | 0x01000000,
     )
     state.is_starting = True
     state.start_requested_at = time.time()

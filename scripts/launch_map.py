@@ -275,10 +275,12 @@ def main() -> None:
     print(f"  Cluster : {cluster_id}")
     print()
 
+    # CREATE_BREAKAWAY_FROM_JOB (0x01000000) ensures the server is detached
+    # from any parent job object so it survives a controller restart.
     subprocess.Popen(
         [exe, map_arg] + flags,
         cwd=os.path.dirname(exe),
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        creationflags=subprocess.CREATE_NEW_CONSOLE | 0x01000000,
     )
     print(f"{display} launched successfully.")
 
