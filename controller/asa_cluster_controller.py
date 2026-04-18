@@ -6,6 +6,7 @@ import json
 import time
 import shutil
 import asyncio
+import ctypes
 import datetime
 import threading
 import subprocess
@@ -1391,6 +1392,34 @@ def cancel_manual_stop(target: ServerState) -> None:
     log(f"{target.cfg.key} shutdown cancelled")
 
 
+def _confirm_force_shutdown() -> bool:
+    """Show a native Windows MessageBox asking the user to confirm a force shutdown.
+
+    Returns True only if the user explicitly clicks Yes.  No is the default
+    button so that an accidental Enter press does not trigger the shutdown.
+    """
+    MB_YESNO       = 0x00000004   # Yes / No buttons
+    MB_ICONWARNING = 0x00000030   # Yellow warning triangle
+    MB_DEFBUTTON2  = 0x00000100   # Default focus on the second button (No)
+    MB_TOPMOST     = 0x00040000   # Ensure the dialog appears on top
+    IDYES          = 6
+
+    text = (
+        "⚠  FORCE SHUTDOWN CLUSTER\n\n"
+        "This will immediately kill ALL server processes with no grace period.\n\n"
+        "  •  No world save will be performed — unsaved progress WILL be lost\n"
+        "  •  No DoExit command — processes are terminated with taskkill /F\n"
+        "  •  Servers that are still starting up will also be killed instantly\n"
+        "  •  Players will be disconnected without any in-game warning\n\n"
+        "Are you sure you want to force-stop the entire cluster right now?"
+    )
+    title = "Force Shutdown — Confirm"
+
+    flags  = MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_TOPMOST
+    result = ctypes.windll.user32.MessageBoxW(0, text, title, flags)
+    return result == IDYES
+
+
 def perform_force_cluster_shutdown() -> None:
     """Immediately kill every server process — no save, no DoExit, no waiting.
     Use this when you need everything dead right now (e.g. stuck-starting maps).
@@ -1647,7 +1676,11 @@ def handle_admin_command(command: str) -> None:
         return
 
     if lowered == "force shutdown cluster":
-        perform_force_cluster_shutdown()
+        log("Force shutdown requested — waiting for confirmation dialog...")
+        if _confirm_force_shutdown():
+            perform_force_cluster_shutdown()
+        else:
+            log("Force shutdown cancelled by user.")
         return
 
     shutdown_match = re.fullmatch(r"shutdown cluster\s+(.+)", lowered)
