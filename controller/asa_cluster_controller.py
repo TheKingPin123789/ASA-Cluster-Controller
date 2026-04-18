@@ -287,6 +287,8 @@ class ServerState:
     # True only when the server went offline due to a crash (not a manual stop)
     # — guards the cooldown-retry so intentional shutdowns don't auto-restart
     crash_offline: bool = False
+    # PID of the last Popen'd server process — used to force-kill on shutdown
+    process_pid: int = 0
 
 
 @dataclass
@@ -296,6 +298,9 @@ class ClusterState:
     last_announcement_remaining: Optional[int] = None
     cluster_stopped: bool = False
     restart_pending: bool = False
+    # Set to True after the shutdown Discord message is sent so no further
+    # Discord notifications go out while servers are winding down / starting
+    discord_silent: bool = False
 
 
 SERVER_STATES: Dict[str, ServerState] = {k: ServerState(cfg=v) for k, v in SERVERS.items()}
@@ -558,6 +563,11 @@ DISCORD_BOT = DiscordBot()
 
 def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
     """Send a Discord notification via bot or webhook depending on config."""
+    # Silenced after cluster shutdown message — suppress notifications while
+    # servers wind down or starting maps come online during a shutdown sequence
+    if CLUSTER.discord_silent:
+        return
+
     use_bot = (_cfg.get("discord", "use_bot") if _cfg.has_option("discord", "use_bot") else "false").strip().lower() == "true"
 
     if use_bot:
@@ -1034,11 +1044,12 @@ def start_server(key: str) -> bool:
     # CREATE_BREAKAWAY_FROM_JOB (0x01000000) ensures the server process is
     # fully detached from the controller's job object so it keeps running
     # if the controller is restarted or killed.
-    subprocess.Popen(
+    proc = subprocess.Popen(
         [exe, map_arg] + flags,
         cwd=os.path.dirname(exe),
         creationflags=subprocess.CREATE_NEW_CONSOLE | 0x01000000,
     )
+    state.process_pid = proc.pid
     state.is_starting = True
     state.start_requested_at = time.time()
     state.pending_online_announcement = True
@@ -1094,6 +1105,7 @@ def stop_server_safe(state: ServerState, reason: str) -> None:
     state.manual_stop_duration_seconds = 0
     state.pending_online_announcement = False
     state.seen_log_lines.clear()
+    state.process_pid = 0
     # Intentional stop — disarm crash auto-restart so it doesn't come back up
     state.crash_offline          = False
     state.last_crash_restart_at  = None
@@ -1379,6 +1391,9 @@ def perform_cluster_shutdown() -> None:
         discord_notify(
             f"**{CLUSTER_NAME}** is shutting down ⛔\nAll servers will be stopped.",
             _DC_GREY, "Cluster Shutdown")
+    # Silence all further Discord messages — a map that finishes starting up
+    # during the shutdown sequence should not send an "online" notification
+    CLUSTER.discord_silent = True
     backup_world()
     log("Executing cluster shutdown")
     announce_all_online("Saving world...")
@@ -1395,6 +1410,18 @@ def perform_cluster_shutdown() -> None:
 
     log(f"Waiting {POST_SHUTDOWN_WAIT_SECONDS}s for server processes to fully stop...")
     time.sleep(POST_SHUTDOWN_WAIT_SECONDS)
+
+    # Force-kill any server processes still alive after the wait — this covers
+    # maps that were starting up when shutdown was triggered and never came
+    # online (so DoExit was never sent to them).
+    for key, state in SERVER_STATES.items():
+        if state.process_pid:
+            log(f"Force-killing lingering server process PID {state.process_pid} for {key}")
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(state.process_pid)],
+                capture_output=True,
+            )
+            state.process_pid = 0
 
     # Clear crash tracking on ALL servers — including any that were already
     # offline/crashed before the shutdown was triggered.  Without this, a
@@ -1479,6 +1506,7 @@ def perform_cluster_restart() -> None:
     CLUSTER.last_announcement_remaining = None
     CLUSTER.cluster_stopped = False
     CLUSTER.restart_pending = False
+    CLUSTER.discord_silent = False
 
     log("Restarting servers...")
     for key in maps_to_restore:
@@ -1519,6 +1547,7 @@ def handle_admin_command(command: str) -> None:
         if any(s.is_running or s.is_starting for s in SERVER_STATES.values()):
             log("Cluster already has running servers.")
             return
+        CLUSTER.discord_silent = False
         CLUSTER.cluster_stopped = False
         start_server(DEFAULT_SERVER_KEY)
         return

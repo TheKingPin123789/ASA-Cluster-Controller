@@ -1566,12 +1566,16 @@ function render(data) {
             ? `<span class="breed-hint">${esc(f.hint)}</span>`
             : '';
 
-        if (f.type === 'checkbox') {
-          // Checkbox toggle — value stored as "true"/"false" string in config
-          const checked = (saved || f.ph || 'false').trim().toLowerCase() === 'true';
+        // Auto-detect boolean fields: explicit type:'checkbox', or placeholder is 'true'/'false'
+        const isBoolean = f.type === 'checkbox' || f.ph === 'true' || f.ph === 'false';
+        if (isBoolean && f.type !== 'info') {
+          // Toggle switch — value stored as "true"/"false" string in config
+          const val = (saved || f.ph || 'false').trim().toLowerCase();
+          const checked = val === 'true';
+          // Only wire the Discord visibility toggle to the use_bot field
+          const onchg = (f.s === 'discord' && f.k === 'use_bot') ? ' onchange="onDiscordToggle(this)"' : '';
           d.innerHTML = `<label class="toggle-label">
-            <input type="checkbox" class="toggle-cb" data-s="${f.s}" data-k="${f.k}"${checked ? ' checked' : ''}
-              onchange="onDiscordToggle(this)">
+            <input type="checkbox" class="toggle-cb" data-s="${f.s}" data-k="${f.k}"${checked ? ' checked' : ''}${onchg}>
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
             ${esc(f.label)}
           </label>${hint}`;
