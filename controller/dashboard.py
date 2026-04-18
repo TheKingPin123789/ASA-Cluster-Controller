@@ -1429,6 +1429,13 @@ input::placeholder { color:#3d4a62; }
 <div class="footer"><button class="btn" id="save-btn" onclick="save()">Save Settings</button></div>
 </div>
 <script>
+// Wraps fetch() — redirects to /login automatically on 401 (session expired)
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { window.location.href = '/login'; return null; }
+  return r;
+}
+
 const SCHEMA = [
   { group:'Cluster', sections:[
     { title:'Identity', fields:[
