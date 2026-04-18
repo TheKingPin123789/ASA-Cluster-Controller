@@ -6,7 +6,7 @@ import json
 import time
 import shutil
 import asyncio
-import ctypes
+import queue
 import datetime
 import threading
 import subprocess
@@ -1392,32 +1392,66 @@ def cancel_manual_stop(target: ServerState) -> None:
     log(f"{target.cfg.key} shutdown cancelled")
 
 
+_FORCE_SHUTDOWN_TIMEOUT = 300   # seconds before auto-cancel (5 minutes)
+
+
 def _confirm_force_shutdown() -> bool:
-    """Show a native Windows MessageBox asking the user to confirm a force shutdown.
+    """Print a console warning and wait up to 5 minutes for the user to type
+    'y' + Enter to confirm, or anything else to cancel.
 
-    Returns True only if the user explicitly clicks Yes.  No is the default
-    button so that an accidental Enter press does not trigger the shutdown.
+    Runs input() in a daemon thread so the queue.get() timeout can fire
+    without relying on platform-specific non-blocking stdin tricks.
+    Returns True only on an explicit 'y'/'yes' response within the window.
     """
-    MB_YESNO       = 0x00000004   # Yes / No buttons
-    MB_ICONWARNING = 0x00000030   # Yellow warning triangle
-    MB_DEFBUTTON2  = 0x00000100   # Default focus on the second button (No)
-    MB_TOPMOST     = 0x00040000   # Ensure the dialog appears on top
-    IDYES          = 6
+    sep = "=" * 62
+    print()
+    print(sep)
+    print("  !! FORCE SHUTDOWN CLUSTER — CONFIRMATION REQUIRED !!")
+    print(sep)
+    print()
+    print("  WARNING: This will immediately kill ALL server processes.")
+    print()
+    print("    - No world save  —  unsaved progress will be LOST")
+    print("    - No DoExit      —  processes killed with taskkill /F")
+    print("    - Starting servers killed instantly without warning")
+    print("    - All players disconnected immediately")
+    print()
+    print(f"  Type  y  and press Enter to confirm.")
+    print(f"  Type  n  (or anything else) and press Enter to cancel.")
+    print(f"  No response within 5 minutes = automatic cancel.")
+    print()
+    print(sep)
+    print()
 
-    text = (
-        "⚠  FORCE SHUTDOWN CLUSTER\n\n"
-        "This will immediately kill ALL server processes with no grace period.\n\n"
-        "  •  No world save will be performed — unsaved progress WILL be lost\n"
-        "  •  No DoExit command — processes are terminated with taskkill /F\n"
-        "  •  Servers that are still starting up will also be killed instantly\n"
-        "  •  Players will be disconnected without any in-game warning\n\n"
-        "Are you sure you want to force-stop the entire cluster right now?"
-    )
-    title = "Force Shutdown — Confirm"
+    ans_q: queue.Queue = queue.Queue()
 
-    flags  = MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_TOPMOST
-    result = ctypes.windll.user32.MessageBoxW(0, text, title, flags)
-    return result == IDYES
+    def _read() -> None:
+        try:
+            ans_q.put(input("  Confirm force shutdown [y/n]: ").strip().lower())
+        except Exception:
+            ans_q.put("")
+
+    t = threading.Thread(target=_read, daemon=True)
+    t.start()
+
+    try:
+        answer = ans_q.get(timeout=_FORCE_SHUTDOWN_TIMEOUT)
+    except queue.Empty:
+        print()
+        print("  No response in 5 minutes — force shutdown cancelled.")
+        print()
+        return False
+
+    if answer in ("y", "yes"):
+        print()
+        print("  Confirmed — executing force shutdown now...")
+        print()
+        return True
+
+    print()
+    print("  Force shutdown cancelled.")
+    print()
+    return False
 
 
 def perform_force_cluster_shutdown() -> None:
@@ -1676,11 +1710,11 @@ def handle_admin_command(command: str) -> None:
         return
 
     if lowered == "force shutdown cluster":
-        log("Force shutdown requested — waiting for confirmation dialog...")
+        log("Force shutdown requested — awaiting console confirmation (5 min timeout)...")
         if _confirm_force_shutdown():
             perform_force_cluster_shutdown()
         else:
-            log("Force shutdown cancelled by user.")
+            log("Force shutdown cancelled.")
         return
 
     shutdown_match = re.fullmatch(r"shutdown cluster\s+(.+)", lowered)
