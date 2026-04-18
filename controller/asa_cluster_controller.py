@@ -1475,7 +1475,15 @@ def perform_cluster_shutdown() -> None:
                 log("All starting servers are now online — proceeding with shutdown.")
                 break
             for k in still_starting:
-                update_running_status(SERVER_STATES[k])
+                state = SERVER_STATES[k]
+                update_running_status(state)
+                # If this server has individually exceeded its own startup timeout,
+                # stop waiting for it and let the force-kill block handle it.
+                if (state.is_starting and state.start_requested_at
+                        and time.time() - state.start_requested_at > SERVER_START_TIMEOUT_SECONDS):
+                    log(f"Startup timeout exceeded for {k} during shutdown wait — will force-kill.")
+                    state.is_starting = False
+                    state.start_requested_at = None
             time.sleep(5)
         else:
             timed_out = [k for k in starting_keys if SERVER_STATES[k].is_starting]
@@ -1573,6 +1581,9 @@ def cancel_cluster_shutdown() -> None:
         CLUSTER.last_announcement_remaining = None
         CLUSTER.cluster_stopped = False
         CLUSTER.restart_pending = False
+        # Re-enable Discord in case perform_cluster_shutdown() had already set
+        # discord_silent before being interrupted (e.g. exception mid-shutdown)
+        CLUSTER.discord_silent = False
         announce_all_online("Cluster shutdown cancelled")
         log("Cluster shutdown cancelled")
 
@@ -2000,6 +2011,7 @@ def update_running_status(state: ServerState) -> None:
             log(f"CRASH DETECTED: {state.cfg.key} ({state.rcon_fail_count} consecutive RCON failures)")
             state.is_running = False
             state.is_starting = False
+            state.process_pid = 0    # clear stale PID — process is gone
             state.players.clear()
             state.player_count = 0
             state.last_player_seen_at = None
