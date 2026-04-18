@@ -90,7 +90,7 @@ def _safe_next(url: str) -> str:
     """Return url only if it is a local path — prevents open-redirect attacks."""
     from urllib.parse import urlparse
     parsed = urlparse(url)
-    if parsed.scheme or parsed.netloc or url.startswith("//"):
+    if parsed.scheme or parsed.netloc or url.startswith("//") or url.startswith("\\"):
         return "/"
     return url or "/"
 
@@ -830,8 +830,10 @@ async function openPlayerModal(id) {
   let onWl = false;
   try {
     const r = await apiFetch('/api/whitelist');
-    const wlData = await r.json();
-    onWl = (wlData.entries || []).includes(id);
+    if (r) {
+      const wlData = await r.json();
+      onWl = (wlData.entries || []).includes(id);
+    }
   } catch(e) {}
 
   renderPmWl(id, onWl);
@@ -1175,6 +1177,9 @@ def post_settings():
         if not cfg.has_section(section):
             cfg.add_section(section)
         for key, value in kvs.items():
+            # Block sensitive auth fields — must never be set directly via the API
+            if section == "auth" and key in ("password_hash", "secret_key"):
+                continue
             # new_password is a UI-only field — hash it and store as password_hash
             if section == "auth" and key == "new_password":
                 if str(value).strip():
@@ -1620,7 +1625,7 @@ function render(data) {
     g.sections.forEach((sec, si) => {
       if (multi) {
         const h = document.createElement('div');
-        h.className = 'sec-head' + (si === 0 ? ' sec-head:first-child' : '');
+        h.className = 'sec-head';
         h.textContent = sec.title;
         groupEl.appendChild(h);
       }
@@ -1843,7 +1848,7 @@ button:hover { background: #1d4ed8; }
 def login_page():
     if session.get("logged_in"):
         return redirect("/")
-    next_url = request.args.get("next", "/")
+    next_url = _safe_next(request.args.get("next", "/"))
     return render_template_string(LOGIN_PAGE, error=None, next=next_url)
 
 
