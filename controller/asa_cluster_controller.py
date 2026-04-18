@@ -981,6 +981,10 @@ def _patch_engine_ini() -> None:
 
 
 def start_server(key: str) -> bool:
+    # Never launch a server while a shutdown or cluster-stop is in progress
+    if CLUSTER.shutdown_scheduled or CLUSTER.cluster_stopped:
+        log(f"start_server({key}) blocked — cluster shutdown in progress")
+        return False
     state = SERVER_STATES[key]
     if state.is_running or state.is_starting:
         return False
@@ -1387,13 +1391,41 @@ def cancel_manual_stop(target: ServerState) -> None:
 
 
 def perform_cluster_shutdown() -> None:
+    # Lock out any new server starts immediately.  For instant shutdowns
+    # (delay_seconds=0) shutdown_scheduled was never set by the scheduler, so
+    # set it here so start_server() and ensure_default_server() both bail out.
+    CLUSTER.shutdown_scheduled = True
+
     if _dc_flag("notify_cluster_events"):
         discord_notify(
             f"**{CLUSTER_NAME}** is shutting down ⛔\nAll servers will be stopped.",
             _DC_GREY, "Cluster Shutdown")
     # Silence all further Discord messages — a map that finishes starting up
-    # during the shutdown sequence should not send an "online" notification
+    # during the shutdown sequence should not post an "online" notification.
     CLUSTER.discord_silent = True
+
+    # Wait for any servers that are mid-startup to come fully online so they
+    # can be stopped cleanly via RCON.  The main loop is blocked while we run,
+    # so actively poll each starting server ourselves.
+    starting_keys = [k for k, s in SERVER_STATES.items() if s.is_starting]
+    if starting_keys:
+        log(f"Shutdown waiting for server(s) to finish starting: {starting_keys}")
+        announce_all_online(
+            f"Shutdown pending — waiting for {', '.join(starting_keys)} to come online...")
+        deadline = time.time() + SERVER_START_TIMEOUT_SECONDS
+        while time.time() < deadline:
+            still_starting = [k for k in starting_keys if SERVER_STATES[k].is_starting]
+            if not still_starting:
+                log("All starting servers are now online — proceeding with shutdown.")
+                break
+            for k in still_starting:
+                update_running_status(SERVER_STATES[k])
+            time.sleep(5)
+        else:
+            timed_out = [k for k in starting_keys if SERVER_STATES[k].is_starting]
+            if timed_out:
+                log(f"Startup wait timed out for: {timed_out} — proceeding with shutdown.")
+
     backup_world()
     log("Executing cluster shutdown")
     announce_all_online("Saving world...")
