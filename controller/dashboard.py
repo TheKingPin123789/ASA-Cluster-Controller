@@ -161,6 +161,15 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 .pm-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
 .pm-close { align-self:flex-end; cursor:pointer; font-size:20px; color:#4b5563; line-height:1; margin-top:-8px; }
 
+/* Force-shutdown confirm modal */
+#confirm-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:2000; align-items:center; justify-content:center; }
+#confirm-modal.open { display:flex; }
+#confirm-modal-box { background:#1a1f36; border:2px solid #7f1d1d; border-radius:8px; padding:24px 26px; max-width:460px; width:90%; display:flex; flex-direction:column; gap:14px; }
+.cm-title { font-size:18px; font-weight:700; color:#f87171; display:flex; align-items:center; gap:8px; }
+.cm-body { font-size:14px; color:#dde1e7; line-height:1.65; }
+.cm-body ul { margin:8px 0 0 18px; color:#fca5a5; }
+.cm-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
+
 /* Settings window */
 .settings-section { margin-top: 10px; }
 .settings-section .sec-title { margin-bottom: 6px; padding-bottom:3px; border-bottom:1px solid #2a3050; }
@@ -338,6 +347,27 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
         </div>
       </div>
 
+    </div>
+  </div>
+</div>
+
+<!-- Force-shutdown confirmation modal -->
+<div id="confirm-modal" onclick="if(event.target===this)cancelForceShutdown()">
+  <div id="confirm-modal-box">
+    <div class="cm-title">&#9888; Force Shutdown Cluster</div>
+    <div class="cm-body">
+      This will <strong>immediately kill all server processes</strong> with no grace period.
+      <ul>
+        <li>No world save &mdash; unsaved progress will be <strong>lost</strong></li>
+        <li>No DoExit &mdash; processes terminated with taskkill&nbsp;/F</li>
+        <li>Servers still starting up are killed instantly</li>
+        <li>All players disconnected without any in-game warning</li>
+      </ul>
+    </div>
+    <div class="cm-actions">
+      <button class="btn btn-gray" onclick="cancelForceShutdown()">Cancel</button>
+      <button class="btn" style="background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b"
+              onclick="confirmForceShutdown()">Force Shutdown</button>
     </div>
   </div>
 </div>
@@ -566,9 +596,30 @@ function sendConsole() {
   const el = document.getElementById('cmd-input');
   const v = el.value.trim();
   if (!v) return;
+  if (v.toLowerCase() === 'force shutdown cluster') {
+    el.value = '';
+    openForceShutdownConfirm();
+    return;
+  }
   echoConsole('> ' + v);
   cmd(v);
   el.value = '';
+}
+
+// ── Force-shutdown confirm modal ──────────────────────────────────────────────
+function openForceShutdownConfirm() {
+  document.getElementById('confirm-modal').classList.add('open');
+}
+
+function cancelForceShutdown() {
+  document.getElementById('confirm-modal').classList.remove('open');
+  echoConsole('> force shutdown cluster (cancelled)');
+}
+
+function confirmForceShutdown() {
+  document.getElementById('confirm-modal').classList.remove('open');
+  echoConsole('> force shutdown cluster');
+  cmd('force shutdown cluster');
 }
 
 // Run a quick-command button
