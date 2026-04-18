@@ -1306,6 +1306,7 @@ def send_admin_help() -> None:
     log("  shutdown cluster")
     log("  shutdown cluster now")
     log("  shutdown cluster <time>   (e.g. 30m, 1h, 1h30m)")
+    log("  force shutdown cluster    (kills all processes immediately — no save)")
     log("  restart")
     log("  restart now")
     log("  restart <time>")
@@ -1388,6 +1389,49 @@ def cancel_manual_stop(target: ServerState) -> None:
     target.manual_stop_duration_seconds = 0
     announce(target, f"{target.cfg.display_name} shutdown cancelled")
     log(f"{target.cfg.key} shutdown cancelled")
+
+
+def perform_force_cluster_shutdown() -> None:
+    """Immediately kill every server process — no save, no DoExit, no waiting.
+    Use this when you need everything dead right now (e.g. stuck-starting maps).
+    Only available as an admin command, never triggered automatically."""
+    CLUSTER.shutdown_scheduled = True
+
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** is being **force-stopped** ⛔\nAll server processes will be killed immediately.",
+            _DC_GREY, "Cluster Force Shutdown")
+    CLUSTER.discord_silent = True
+
+    log("FORCE SHUTDOWN — killing all server processes immediately")
+    announce_all_online("EMERGENCY SHUTDOWN — killing all servers now")
+
+    for key, state in SERVER_STATES.items():
+        if state.process_pid:
+            log(f"Force-killing {key} (PID {state.process_pid})")
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(state.process_pid)],
+                capture_output=True,
+            )
+        # Reset ALL state flags regardless of whether we had a PID stored
+        state.process_pid = 0
+        state.is_starting = False
+        state.is_running = False
+        state.start_requested_at = None
+        state.pending_online_announcement = False
+        state.players.clear()
+        state.player_list = []
+        state.player_count = 0
+        state.crash_offline = False
+        state.last_crash_restart_at = None
+        state.crash_window_start = None
+        state.crash_restart_count = 0
+
+    CLUSTER.shutdown_scheduled = False
+    CLUSTER.shutdown_at = None
+    CLUSTER.last_announcement_remaining = None
+    CLUSTER.cluster_stopped = True
+    log("Force shutdown complete. Controller is idle — use Start Cluster to bring it back up.")
 
 
 def perform_cluster_shutdown() -> None:
@@ -1600,6 +1644,10 @@ def handle_admin_command(command: str) -> None:
 
     if lowered == "shutdown cluster now":
         schedule_cluster_shutdown(0)
+        return
+
+    if lowered == "force shutdown cluster":
+        perform_force_cluster_shutdown()
         return
 
     shutdown_match = re.fullmatch(r"shutdown cluster\s+(.+)", lowered)
