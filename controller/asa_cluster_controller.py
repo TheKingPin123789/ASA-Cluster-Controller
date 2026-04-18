@@ -455,14 +455,35 @@ class DiscordBot:
         arg   = parts[1].lower() if len(parts) > 1 else ""
 
         if base == "!help":
+            map_list = ", ".join(SERVERS.keys())
             embed = discord.Embed(title="ASA Controller Commands", color=_DC_BLUE)
             embed.add_field(name="!status",         value="Cluster overview",                    inline=False)
             embed.add_field(name="!players",        value="Who's online on each server",         inline=False)
+            embed.add_field(name="!maps",           value="List all available map names",        inline=False)
             embed.add_field(name="!start",          value="Start the cluster",                   inline=False)
             embed.add_field(name="!start <map>",    value="Start a specific map",                inline=False)
             embed.add_field(name="!stop",           value="Shutdown the cluster (with warning)", inline=False)
             embed.add_field(name="!stop <map>",     value="Stop a specific map (with warning)",  inline=False)
             embed.add_field(name="!restart",        value="Restart the cluster (with warning)",  inline=False)
+            embed.add_field(name="Maps",            value=f"`{map_list}`",                       inline=False)
+            await message.channel.send(embed=embed)
+            return
+
+        if base == "!maps":
+            map_lines = []
+            for key, state in SERVER_STATES.items():
+                if state.is_running:
+                    status = "🟢 online"
+                elif state.is_starting:
+                    status = "🟡 starting"
+                else:
+                    status = "🔴 offline"
+                map_lines.append(f"`{key}` — {state.cfg.display_name} ({status})")
+            embed = discord.Embed(
+                title=f"{CLUSTER_NAME} — Available Maps",
+                description="\n".join(map_lines),
+                color=_DC_BLUE,
+            )
             await message.channel.send(embed=embed)
             return
 
@@ -531,7 +552,7 @@ class DiscordBot:
             return
 
         if base == "!restart":
-            await self._loop.run_in_executor(None, handle_admin_command, "restart cluster")
+            await self._loop.run_in_executor(None, handle_admin_command, "restart")
             await message.reply("✅ Cluster restart initiated (players warned)…")
             return
 
@@ -1428,6 +1449,14 @@ def perform_force_cluster_shutdown() -> None:
         state.crash_window_start = None
         state.crash_restart_count = 0
 
+    # Catch any adopted servers (process_pid=0) or processes that survived
+    # the PID kill — wipe all ArkAscendedServer.exe processes still running.
+    log("Force-killing any remaining ArkAscendedServer.exe processes...")
+    subprocess.run(
+        ["taskkill", "/F", "/T", "/IM", "ArkAscendedServer.exe"],
+        capture_output=True,
+    )
+
     CLUSTER.shutdown_scheduled = False
     CLUSTER.shutdown_at = None
     CLUSTER.last_announcement_remaining = None
@@ -1545,6 +1574,9 @@ def schedule_cluster_shutdown(delay_seconds: int = 0) -> None:
 
     total_minutes = max(1, int(delay_seconds // 60))
     announce_all_online(f"Cluster shutdown scheduled in {total_minutes} minutes")
+    # Mark this minute as already announced so handle_cluster_shutdown_timer()
+    # doesn't immediately fire a second identical message on the next poll.
+    CLUSTER.last_announcement_remaining = total_minutes
     log(f"Cluster shutdown scheduled in {total_minutes} minutes")
     if _dc_flag("notify_cluster_events"):
         discord_notify(
@@ -1614,6 +1646,7 @@ def schedule_cluster_restart(delay_seconds: int = 0) -> None:
 
     total_minutes = max(1, int(delay_seconds // 60))
     announce_all_online(f"Server restart scheduled in {total_minutes} minutes")
+    CLUSTER.last_announcement_remaining = total_minutes
     log(f"Server restart scheduled in {total_minutes} minutes")
     if _dc_flag("notify_cluster_events"):
         discord_notify(
