@@ -1422,6 +1422,16 @@ def perform_cluster_shutdown() -> None:
                 capture_output=True,
             )
             state.process_pid = 0
+        # Clear starting/running flags for ALL servers — a server that was mid-
+        # startup when shutdown triggered will have is_starting=True but never
+        # went through stop_server_safe(), so its state must be wiped here.
+        state.is_starting = False
+        state.is_running = False
+        state.start_requested_at = None
+        state.pending_online_announcement = False
+        state.players.clear()
+        state.player_list = []
+        state.player_count = 0
 
     # Clear crash tracking on ALL servers — including any that were already
     # offline/crashed before the shutdown was triggered.  Without this, a
