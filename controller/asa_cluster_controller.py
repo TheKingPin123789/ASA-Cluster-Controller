@@ -459,7 +459,6 @@ class DiscordBot:
             embed = discord.Embed(title="ASA Controller Commands", color=_DC_BLUE)
             embed.add_field(name="!status",         value="Cluster overview",                    inline=False)
             embed.add_field(name="!players",        value="Who's online on each server",         inline=False)
-            embed.add_field(name="!maps",           value="List all available map names",        inline=False)
             embed.add_field(name="!start",          value="Start the cluster",                   inline=False)
             embed.add_field(name="!start <map>",    value="Start a specific map",                inline=False)
             embed.add_field(name="!stop",           value="Shutdown the cluster (with warning)", inline=False)
@@ -469,23 +468,6 @@ class DiscordBot:
             await message.channel.send(embed=embed)
             return
 
-        if base == "!maps":
-            map_lines = []
-            for key, state in SERVER_STATES.items():
-                if state.is_running:
-                    status = "🟢 online"
-                elif state.is_starting:
-                    status = "🟡 starting"
-                else:
-                    status = "🔴 offline"
-                map_lines.append(f"`{key}` — {state.cfg.display_name} ({status})")
-            embed = discord.Embed(
-                title=f"{CLUSTER_NAME} — Available Maps",
-                description="\n".join(map_lines),
-                color=_DC_BLUE,
-            )
-            await message.channel.send(embed=embed)
-            return
 
         if base == "!status":
             # Snapshot to avoid race condition if main thread modifies SERVER_STATES
