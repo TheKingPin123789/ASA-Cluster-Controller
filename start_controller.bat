@@ -34,12 +34,28 @@ if not exist "controller\asa_cluster_controller.py" (
     echo.
 )
 
-:: Install Python dependencies if needed
-python -c "import flask" >nul 2>&1
+:: Check Python is available
+python --version >nul 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo Installing Python dependencies...
-    pip install -r requirements.txt -q
+    echo.
+    echo  ERROR: Python is not installed or not on PATH.
+    echo  Download it from https://www.python.org/downloads/
+    echo.
+    pause
+    exit /b 1
 )
+
+:: Install / update Python dependencies from requirements.txt
+echo Checking Python dependencies...
+pip install --upgrade -r requirements.txt -q
+if %ERRORLEVEL% neq 0 (
+    echo.
+    echo  WARNING: Could not install/update dependencies. Check your internet connection.
+    echo  Continuing anyway in case they are already installed...
+    echo.
+)
+echo Dependencies ready.
+echo.
 
 cd /d "%~dp0controller"
 
