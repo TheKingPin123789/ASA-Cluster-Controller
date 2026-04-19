@@ -177,6 +177,10 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .btn-bright-green  { background: #22c55e; color: #ffffff; }
 .btn-bright-red    { background: #dc2626; color: #ffffff; }
 .btn-bright-orange { background: #ea580c; color: #ffffff; }
+/* Disabled bright buttons switch to gray so colour alone signals availability */
+.btn-bright-green:disabled  { background: #374151; color: #6b7280; opacity: 1; }
+.btn-bright-red:disabled    { background: #374151; color: #6b7280; opacity: 1; }
+.btn-bright-orange:disabled { background: #374151; color: #6b7280; opacity: 1; }
 .btn-full { width: 100%; }
 .btn-sm { padding: 4px 8px; font-size: 13px; }
 
