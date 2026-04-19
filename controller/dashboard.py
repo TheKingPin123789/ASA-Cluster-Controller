@@ -106,7 +106,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-
 def _get_web_port() -> int:
     """Read web_status_port from config.ini, defaulting to 5000."""
     cfg = configparser.RawConfigParser()
@@ -514,8 +513,7 @@ async function loadWlTab() {
 async function loadCmdCategories() {
   try {
     const r = await apiFetch('/api/command_categories');
-    if (!r) return;
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderCmdCategories(data.categories || {}, data.available || []);
   } catch(e) {}
@@ -615,7 +613,7 @@ async function addAdminPlayer() {
   const inp = document.getElementById('admin-add-input');
   const id  = inp.value.trim();
   if (!id) return;
-  await fetch('/api/admin_list', {
+  await apiFetch('/api/admin_list', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({action:'add', id})
@@ -625,7 +623,7 @@ async function addAdminPlayer() {
 }
 
 async function removeAdminPlayer(id) {
-  await fetch('/api/admin_list', {
+  await apiFetch('/api/admin_list', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({action:'remove', id})
@@ -644,7 +642,7 @@ function switchRightTab(name) {
 
 // ── Commands ─────────────────────────────────────────────────────────────────
 function cmd(command) {
-  fetch('/api/command', {
+  apiFetch('/api/command', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({command})
@@ -655,9 +653,10 @@ function cmd(command) {
 function restartProcess(which) {
   const label = which === 'controller' ? 'Controller' : 'Dashboard';
   if (!confirm('Restart the ' + label + ' process?\n\nThe ' + label.toLowerCase() + ' window will close and reopen automatically.')) return;
-  fetch('/api/restart/' + which, {method: 'POST'})
-    .then(r => r.json())
+  apiFetch('/api/restart/' + which, {method: 'POST'})
+    .then(r => r ? r.json() : null)
     .then(d => {
+      if (!d) return; // null = 401, redirect already fired by apiFetch
       if (d.ok) {
         if (which === 'dashboard') {
           // Page will go offline briefly — show a reconnect banner
@@ -665,9 +664,10 @@ function restartProcess(which) {
             '<div>Dashboard is restarting…</div>' +
             '<div style="font-size:14px;color:#6b7280;">This page will reload automatically.</div>' +
             '</div>';
-          // Poll until the server is back
+          // Use raw fetch during restart polling — dashboard is coming back up so
+          // there is no valid session yet; apiFetch would redirect to /login instead.
           const poll = setInterval(() => {
-            fetch('/api/status').then(() => { clearInterval(poll); location.reload(); }).catch(() => {});
+            fetch('/api/status').then(r => { if (r.ok) { clearInterval(poll); location.reload(); } }).catch(() => {});
           }, 2000);
         }
       } else {
@@ -740,7 +740,7 @@ let _playerModalCache  = {};   // id -> {name,id,map,mapKey,isOnline,last_seen}
 
 async function loadWlPanel() {
   try {
-    const r = await fetch('/api/whitelist');
+    const r = await apiFetch('/api/whitelist');
     if (!r.ok) return;
     const data = await r.json();
     renderWlPanel(data.entries || []);
@@ -785,7 +785,7 @@ function toggleApPanel() {
 
 async function loadApPanel() {
   try {
-    const r = await fetch('/api/seen_players');
+    const r = await apiFetch('/api/seen_players');
     if (!r.ok) return;
     const data = await r.json();
     renderApPanel(data.players || {});
@@ -880,9 +880,11 @@ async function openPlayerModal(id) {
   // Fetch whitelist status fresh
   let onWl = false;
   try {
-    const r = await fetch('/api/whitelist');
-    const wlData = await r.json();
-    onWl = (wlData.entries || []).includes(id);
+    const r = await apiFetch('/api/whitelist');
+    if (r) {
+      const wlData = await r.json();
+      onWl = (wlData.entries || []).includes(id);
+    }
   } catch(e) {}
 
   renderPmWl(id, onWl);
@@ -1027,7 +1029,7 @@ async function apiFetch(url, opts) {
 async function pollStatus() {
   try {
     const r = await apiFetch('/api/status');
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     if (data.error) return;
     renderCards(data);
@@ -1038,8 +1040,8 @@ async function pollStatus() {
 
 async function pollLogs() {
   try {
-    const r = await fetch('/api/logs?n=300');
-    if (!r.ok) return;
+    const r = await apiFetch('/api/logs?n=300');
+    if (!r || !r.ok) return;
     const data = await r.json();
     const lines = data.lines || [];
     if (!lines.length) return;
@@ -1083,8 +1085,8 @@ function colorizeAdminLine(ln) {
 
 async function pollAdminLogs() {
   try {
-    const r = await fetch('/api/admin_logs?n=200');
-    if (!r.ok) return;
+    const r = await apiFetch('/api/admin_logs?n=200');
+    if (!r || !r.ok) return;
     const data = await r.json();
     const lines = data.lines || [];
     if (!lines.length) return;
@@ -1506,6 +1508,13 @@ input::placeholder { color:#3d4a62; }
 <div class="footer"><button class="btn" id="save-btn" onclick="save()">Save Settings</button></div>
 </div>
 <script>
+// Wraps fetch() — redirects to /login automatically on 401 (session expired)
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { window.location.href = '/login'; return null; }
+  return r;
+}
+
 const SCHEMA = [
   { group:'Cluster', sections:[
     { title:'Identity', fields:[
@@ -1719,7 +1728,7 @@ function render(data) {
     g.sections.forEach((sec, si) => {
       if (multi) {
         const h = document.createElement('div');
-        h.className = 'sec-head' + (si === 0 ? ' sec-head:first-child' : '');
+        h.className = 'sec-head';
         h.textContent = sec.title;
         groupEl.appendChild(h);
       }
@@ -1758,7 +1767,10 @@ function render(data) {
         } else if (f.type === 'info') {
           d.innerHTML = `<div class="info-box">${f.html}</div>`;
         } else {
-          d.innerHTML = `<label>${esc(f.label)}</label><input type="text" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+          // Field is always empty — placeholder shows the current config value
+          const inputType = f.type === 'password' ? 'password' : 'text';
+          const autoComp  = f.type === 'password' ? 'new-password' : 'off';
+          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
         }
         wrap.appendChild(d);
       }
@@ -1813,14 +1825,14 @@ function wireDiscordToggle() {
 async function load() {
   let data = {};
   try {
-    const r = await fetch('/api/settings');
-    data = await r.json();
+    const r = await apiFetch('/api/settings');
+    if (r) data = await r.json();
     if (!Object.keys(data).length) {
-      const dr = await fetch('/api/defaults');
-      data = await dr.json();
+      const dr = await apiFetch('/api/defaults');
+      if (dr) data = await dr.json();
       document.getElementById('notice').style.display = 'block';
     }
-  } catch(e) {}
+  } catch(e) { console.error('Settings load error:', e); }
   buildTabBar();
   render(data);
   wireBreedingHints();
@@ -1828,30 +1840,41 @@ async function load() {
 }
 
 async function save() {
+  const btn = document.getElementById('save-btn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
   const payload = {};
   document.querySelectorAll('#form input').forEach(i => {
     const s = i.dataset.s, k = i.dataset.k;
-    if (!s || !k) return;
+    if (!s || !k) return; // skip inputs without data-s / data-k
     if (!payload[s]) payload[s] = {};
-    // Checkboxes store "true"/"false" strings
+    // Checkboxes store "true"/"false" strings; password fields send exact value
     if (i.type === 'checkbox') {
       payload[s][k] = i.checked ? 'true' : 'false';
     } else {
-      payload[s][k] = i.value || i.placeholder;
+      payload[s][k] = i.type === 'password' ? i.value : (i.value || i.placeholder);
     }
   });
-  const r = await fetch('/api/settings', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
-  });
-  const btn = document.getElementById('save-btn');
-  if (r.ok) {
-    document.getElementById('notice').style.display = 'none';
-    btn.textContent = 'Saved!'; btn.className = 'btn saved';
-    setTimeout(() => { btn.textContent = 'Save Settings'; btn.className = 'btn'; }, 2000);
-  } else {
-    btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d';
-    setTimeout(() => { btn.textContent = 'Save Settings'; btn.style.background = ''; }, 2500);
+  const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };
+  try {
+    const r = await apiFetch('/api/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!r) return; // 401 — apiFetch already redirected to /login
+    if (r.ok) {
+      document.getElementById('notice').style.display = 'none';
+      btn.textContent = 'Saved!'; btn.className = 'btn saved'; btn.disabled = false;
+      setTimeout(reset, 2000);
+    } else {
+      const body = await r.json().catch(() => ({}));
+      btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
+      console.error('Settings save failed:', r.status, body);
+      setTimeout(reset, 2500);
+    }
+  } catch (e) {
+    btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
+    console.error('Settings save error:', e);
+    setTimeout(reset, 2500);
   }
 }
 
