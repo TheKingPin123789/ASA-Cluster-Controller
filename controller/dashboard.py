@@ -12,9 +12,10 @@ from flask import Flask, jsonify, request, render_template_string, session, redi
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR        = os.path.dirname(BASE_DIR)          # one level up from controller/
+LOGS_DIR        = os.path.join(BASE_DIR, "logs")
 STATUS_JSON     = os.path.join(BASE_DIR, "cluster_status.json")
-LOG_FILE        = os.path.join(BASE_DIR, "controller.log")
-ADMIN_LOG_FILE  = os.path.join(BASE_DIR, "admin_log.txt")
+LOG_FILE        = os.path.join(LOGS_DIR, "controller.log")
+ADMIN_LOG_FILE  = os.path.join(LOGS_DIR, "admin_log.txt")
 ADMIN_CMD       = os.path.join(BASE_DIR, "admin_commands.txt")
 CONFIG_FILE     = os.path.join(BASE_DIR, "config.ini")
 WHITELIST_FILE      = os.path.join(BASE_DIR, "whitelist.txt")

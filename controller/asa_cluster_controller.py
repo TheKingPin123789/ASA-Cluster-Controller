@@ -20,13 +20,15 @@ from typing import Dict, List, Optional
 from setup_wizard import prompt_setup_on_startup
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGS_DIR = os.path.join(BASE_DIR, "logs")
+os.makedirs(LOGS_DIR, exist_ok=True)
 
 MCRCON_EXE = os.path.join(BASE_DIR, "mcrcon.exe")
 ADMIN_COMMAND_FILE = os.path.join(BASE_DIR, "admin_commands.txt")
 STATUS_FILE = os.path.join(BASE_DIR, "cluster_status.txt")
 STATUS_JSON_FILE = os.path.join(BASE_DIR, "cluster_status.json")
-LOG_FILE       = os.path.join(BASE_DIR, "controller.log")
-ADMIN_LOG_FILE = os.path.join(BASE_DIR, "admin_log.txt")
+LOG_FILE       = os.path.join(LOGS_DIR, "controller.log")
+ADMIN_LOG_FILE = os.path.join(LOGS_DIR, "admin_log.txt")
 STOP_FILE            = os.path.join(BASE_DIR, "controller.stop")
 CONTROLLER_RESTART_FILE = os.path.join(BASE_DIR, "controller.restart")
 RESTART_MAPS_FILE = os.path.join(BASE_DIR, "restart_maps.txt")
@@ -325,13 +327,13 @@ def _rotate_log() -> None:
     if not os.path.exists(LOG_FILE):
         return
     ts = time.strftime("%Y-%m-%d_%H-%M-%S")
-    archived = os.path.join(BASE_DIR, f"controller_{ts}.log")
+    archived = os.path.join(LOGS_DIR, f"controller_{ts}.log")
     try:
         os.rename(LOG_FILE, archived)
     except Exception:
         return
     # Prune oldest archived logs
-    old_logs = sorted(Path(BASE_DIR).glob("controller_*.log"), key=lambda p: p.name)
+    old_logs = sorted(Path(LOGS_DIR).glob("controller_*.log"), key=lambda p: p.name)
     while len(old_logs) > MAX_LOGS:
         try:
             old_logs.pop(0).unlink()
