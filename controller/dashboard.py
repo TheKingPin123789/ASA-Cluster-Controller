@@ -2,10 +2,13 @@ import os
 import sys
 import json
 import signal
+import hashlib
 import logging
+import secrets
 import subprocess
 import configparser
-from flask import Flask, jsonify, request, render_template_string
+from functools import wraps
+from flask import Flask, jsonify, request, render_template_string, session, redirect, url_for
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR        = os.path.dirname(BASE_DIR)          # one level up from controller/
@@ -24,6 +27,85 @@ CONTROLLER_RESTART_FILE    = os.path.join(BASE_DIR, "controller.restart")
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def _get_auth_cfg():
+    """Read auth settings fresh from config.ini each call."""
+    cfg = configparser.RawConfigParser()
+    try:
+        cfg.read(CONFIG_FILE, encoding="utf-8")
+    except Exception:
+        pass
+    return cfg
+
+
+def _ensure_secret_key() -> str:
+    """Return the session secret key, auto-generating and saving it if missing."""
+    cfg = configparser.RawConfigParser()
+    try:
+        cfg.read(CONFIG_FILE, encoding="utf-8")
+    except Exception:
+        pass
+    if cfg.has_option("auth", "secret_key"):
+        key = cfg.get("auth", "secret_key").strip()
+        if key:
+            return key
+    # Generate a new key and persist it
+    key = secrets.token_hex(32)
+    if not cfg.has_section("auth"):
+        cfg.add_section("auth")
+    cfg.set("auth", "secret_key", key)
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            cfg.write(f)
+    except Exception:
+        pass
+    return key
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _check_credentials(username: str, password: str) -> bool:
+    cfg = _get_auth_cfg()
+    stored_user = cfg.get("auth", "username", fallback="admin").strip()
+    stored_hash = cfg.get("auth", "password_hash", fallback="").strip()
+    # Fallback: if no hash stored yet, accept default password 'admin' and migrate
+    if not stored_hash:
+        return username == stored_user and password == "admin"
+    return username == stored_user and _hash_password(password) == stored_hash
+
+
+def _auth_enabled() -> bool:
+    """Auth is enabled whenever a username is configured (always true by design)."""
+    return True
+
+
+def _safe_next(url: str) -> str:
+    """Return url only if it is a local path — prevents open-redirect attacks."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme or parsed.netloc or url.startswith("//") or url.startswith("\\"):
+        return "/"
+    return url or "/"
+
+
+def login_required(f):
+    """Decorator — redirects to /login for page routes, returns 401 for API routes."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("logged_in"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for("login_page", next=request.path))
+        return f(*args, **kwargs)
+    return decorated
+
 
 def _get_web_port() -> int:
     """Read web_status_port from config.ini, defaulting to 5000."""
@@ -197,6 +279,9 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
     <button onclick="openSettings()" title="Settings"
             style="background:none; border:none; cursor:pointer; font-size:20px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px;"
             onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#6b7280'">⚙</button>
+    <a href="/logout" title="Sign out"
+       style="background:none; border:none; cursor:pointer; font-size:18px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px; text-decoration:none;"
+       onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#6b7280'">⏻</a>
   </div>
 </div>
 
@@ -428,7 +513,8 @@ async function loadWlTab() {
 
 async function loadCmdCategories() {
   try {
-    const r = await fetch('/api/command_categories');
+    const r = await apiFetch('/api/command_categories');
+    if (!r) return;
     if (!r.ok) return;
     const data = await r.json();
     renderCmdCategories(data.categories || {}, data.available || []);
@@ -473,7 +559,7 @@ async function addCmd(tier) {
   const sel = document.getElementById('cmd-add-' + tier);
   const val = sel.value;
   if (!val) return;
-  await fetch('/api/command_categories', {
+  await apiFetch('/api/command_categories', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({command: val, tier})
@@ -482,7 +568,7 @@ async function addCmd(tier) {
 }
 
 async function removeCmd(c) {
-  await fetch('/api/command_categories', {
+  await apiFetch('/api/command_categories', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({command: c, tier: null})
@@ -501,8 +587,8 @@ async function addWlPlayer() {
 
 async function loadAdminPanel() {
   try {
-    const r = await fetch('/api/admin_list');
-    if (!r.ok) return;
+    const r = await apiFetch('/api/admin_list');
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderAdminPanel(data.entries || []);
   } catch(e) {}
@@ -929,10 +1015,18 @@ function tickTimer() {
 
 setInterval(tickTimer, 1000);
 
+// ── Session expiry handling ───────────────────────────────────────────────────
+// Wraps fetch() — redirects to /login automatically on 401 (session expired)
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { window.location.href = '/login'; return null; }
+  return r;
+}
+
 // ── Polling ───────────────────────────────────────────────────────────────────
 async function pollStatus() {
   try {
-    const r = await fetch('/api/status');
+    const r = await apiFetch('/api/status');
     if (!r.ok) return;
     const data = await r.json();
     if (data.error) return;
@@ -1030,11 +1124,13 @@ setInterval(pollAdminLogs, 1500);
 # ---------------------------------------------------------------------------
 
 @app.route("/")
+@login_required
 def index():
     return render_template_string(HTML)
 
 
 @app.route("/api/status")
+@login_required
 def get_status():
     try:
         with open(STATUS_JSON, encoding="utf-8") as f:
@@ -1046,6 +1142,7 @@ def get_status():
 
 
 @app.route("/api/logs")
+@login_required
 def get_logs():
     n = request.args.get("n", 300, type=int)
     try:
@@ -1059,6 +1156,7 @@ def get_logs():
 
 
 @app.route("/api/admin_logs")
+@login_required
 def get_admin_logs():
     n = request.args.get("n", 200, type=int)
     try:
@@ -1072,6 +1170,7 @@ def get_admin_logs():
 
 
 @app.route("/api/whitelist")
+@login_required
 def get_whitelist():
     try:
         if not os.path.exists(WHITELIST_FILE):
@@ -1084,6 +1183,7 @@ def get_whitelist():
 
 
 @app.route("/api/command", methods=["POST"])
+@login_required
 def post_command():
     data = request.get_json(silent=True) or {}
     command = data.get("command", "").strip()
@@ -1098,6 +1198,7 @@ def post_command():
 
 
 @app.route("/api/settings", methods=["GET"])
+@login_required
 def get_settings():
     cfg = configparser.RawConfigParser()
     try:
@@ -1105,10 +1206,15 @@ def get_settings():
     except Exception:
         pass
     result = {section: dict(cfg.items(section)) for section in cfg.sections()}
+    # Strip sensitive auth fields — never send hashed password or secret key to browser
+    if "auth" in result:
+        result["auth"].pop("password_hash", None)
+        result["auth"].pop("secret_key",    None)
     return jsonify(result)
 
 
 @app.route("/api/settings", methods=["POST"])
+@login_required
 def post_settings():
     data = request.get_json(silent=True) or {}
     cfg = configparser.RawConfigParser()
@@ -1120,6 +1226,15 @@ def post_settings():
         if not cfg.has_section(section):
             cfg.add_section(section)
         for key, value in kvs.items():
+            # Block sensitive auth fields — must never be set directly via the API
+            if section == "auth" and key in ("password_hash", "secret_key"):
+                continue
+            # new_password is a UI-only field — hash it and store as password_hash
+            if section == "auth" and key == "new_password":
+                if str(value).strip():
+                    cfg.set("auth", "password_hash", _hash_password(str(value).strip()))
+                # Never persist the plaintext new_password field
+                continue
             cfg.set(section, key, str(value))
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -1144,11 +1259,13 @@ def _read_categories():
 
 
 @app.route("/api/command_categories", methods=["GET"])
+@login_required
 def get_command_categories():
     return jsonify({"categories": _read_categories(), "available": AVAILABLE_COMMANDS})
 
 
 @app.route("/api/command_categories", methods=["POST"])
+@login_required
 def post_command_categories():
     data    = request.get_json(silent=True) or {}
     command = data.get("command", "").strip().lower()
@@ -1179,11 +1296,13 @@ def _read_list_file(path):
 
 
 @app.route("/api/admin_list", methods=["GET"])
+@login_required
 def get_admin_list():
     return jsonify({"entries": _read_list_file(ADMIN_LIST_FILE)})
 
 
 @app.route("/api/admin_list", methods=["POST"])
+@login_required
 def post_admin_list():
     data   = request.get_json(silent=True) or {}
     action = data.get("action", "")
@@ -1206,6 +1325,7 @@ def post_admin_list():
 
 
 @app.route("/api/seen_players")
+@login_required
 def get_seen_players():
     try:
         if not os.path.exists(SEEN_PLAYERS_FILE):
@@ -1217,6 +1337,7 @@ def get_seen_players():
 
 
 @app.route("/api/defaults")
+@login_required
 def get_defaults():
     return jsonify({
         "cluster": {
@@ -1392,6 +1513,10 @@ const SCHEMA = [
       {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'ChangeMe123'},
       {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
       {s:'network',    k:'rcon_host',      label:'RCON Host',      ph:'127.0.0.1'},
+    ]},
+    { title:'Dashboard Login', fields:[
+      {s:'auth', k:'username',      label:'Username',         ph:'admin',   hint:'Login username for the dashboard'},
+      {s:'auth', k:'new_password',  label:'New Password',     ph:'',        type:'password', hint:'Leave blank to keep current password — fill in to change it'},
     ]},
     { title:'Paths', fields:[
       {s:'paths', k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',              wide:true},
@@ -1737,6 +1862,7 @@ load();
 
 
 @app.route("/api/restart/controller", methods=["POST"])
+@login_required
 def restart_controller():
     """Signal the controller to exit cleanly, then re-launch it via BAT."""
     # Write the restart signal file — the controller detects it on its next
@@ -1761,6 +1887,7 @@ def restart_controller():
 
 
 @app.route("/api/restart/dashboard", methods=["POST"])
+@login_required
 def restart_dashboard():
     """Re-launch the dashboard in a new window, then exit this process."""
     bat = os.path.join(ROOT_DIR, "restart_dashboard.bat")
@@ -1785,17 +1912,119 @@ def restart_dashboard():
 
 
 @app.route("/settings")
+@login_required
 def settings_page():
     return SETTINGS_PAGE
 
 
+# ---------------------------------------------------------------------------
+# Login page HTML
+# ---------------------------------------------------------------------------
+
+LOGIN_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — Cluster Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
+       display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 10px;
+        padding: 40px 36px; width: 360px; }
+h1 { font-size: 22px; color: #93c5fd; margin-bottom: 6px; }
+.sub { font-size: 13px; color: #6b7280; margin-bottom: 28px; }
+label { display: block; font-size: 13px; color: #9ca3af; margin-bottom: 5px; }
+input[type=text], input[type=password] {
+  width: 100%; padding: 10px 12px; background: #0f0f1a; border: 1px solid #2a3050;
+  border-radius: 6px; color: #dde1e7; font-size: 15px; margin-bottom: 18px; outline: none; }
+input:focus { border-color: #3b82f6; }
+button { width: 100%; padding: 11px; background: #2563eb; border: none; border-radius: 6px;
+         color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; transition: background .2s; }
+button:hover { background: #1d4ed8; }
+.error { background: #450a0a; border: 1px solid #7f1d1d; border-radius: 6px;
+         color: #fca5a5; padding: 10px 12px; font-size: 13px; margin-bottom: 18px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🦕 Cluster Dashboard</h1>
+  <p class="sub">Sign in to continue</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="POST" action="/login">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Username</label>
+    <input type="text" name="username" autocomplete="username" autofocus>
+    <label>Password</label>
+    <input type="password" name="password" autocomplete="current-password">
+    <button type="submit">Sign In</button>
+  </form>
+</div>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Auth routes
+# ---------------------------------------------------------------------------
+
+@app.route("/login", methods=["GET"])
+def login_page():
+    if session.get("logged_in"):
+        return redirect("/")
+    next_url = _safe_next(request.args.get("next", "/"))
+    return render_template_string(LOGIN_PAGE, error=None, next=next_url)
+
+
+@app.route("/login", methods=["POST"])
+def login_post():
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    next_url = request.form.get("next", "/")
+    if _check_credentials(username, password):
+        session["logged_in"] = True
+        session.permanent = True
+        return redirect(_safe_next(next_url))
+    return render_template_string(LOGIN_PAGE, error="Invalid username or password.", next=next_url)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+
 if __name__ == "__main__":
     import socket
+    import datetime
 
     # Write Python PID so restart scripts can find and close the CMD window
     try:
         with open(DASHBOARD_PID_FILE, "w") as _pf:
             _pf.write(str(os.getpid()))
+    except Exception:
+        pass
+
+    # Set Flask secret key (auto-generated and saved to config on first run)
+    app.secret_key = _ensure_secret_key()
+    app.permanent_session_lifetime = datetime.timedelta(hours=24)
+
+    # Ensure default credentials exist in config if auth section is missing
+    _auth_cfg = configparser.RawConfigParser()
+    try:
+        _auth_cfg.read(CONFIG_FILE, encoding="utf-8")
+    except Exception:
+        pass
+    if not _auth_cfg.has_section("auth"):
+        _auth_cfg.add_section("auth")
+    if not _auth_cfg.has_option("auth", "username"):
+        _auth_cfg.set("auth", "username", "admin")
+    if not _auth_cfg.has_option("auth", "password_hash"):
+        _auth_cfg.set("auth", "password_hash", _hash_password("admin"))
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as _f:
+            _auth_cfg.write(_f)
     except Exception:
         pass
 
