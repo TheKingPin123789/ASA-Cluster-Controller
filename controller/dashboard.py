@@ -954,6 +954,13 @@ function renderCards(data) {
     const crashBadge = (s.crash_restart_count > 0)
       ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
       : '';
+    // Per-server stop countdown — shown when an admin has scheduled a map shutdown
+    const stopMins = (s.manual_stop_in != null)
+      ? Math.ceil(s.manual_stop_in / 60)
+      : null;
+    const stopBadge = (stopMins != null)
+      ? `<span title="Scheduled shutdown" style="font-size:11px;color:#fbbf24;margin-left:4px;">&#9201; ${stopMins}m</span>`
+      : '';
 
     if (cardEls[key]) {
       const c = cardEls[key];
@@ -962,6 +969,7 @@ function renderCards(data) {
       c.querySelector('.badge').textContent = label;
       c.querySelector('.card-players').textContent = players;
       c.querySelector('.card-crash').innerHTML = crashBadge;
+      c.querySelector('.card-stop-timer').innerHTML = stopBadge;
       c.querySelector('.btn-start').disabled   = s.is_running || s.is_starting;
       c.querySelector('.btn-stop').disabled    = !s.is_running;
       c.querySelector('.btn-restart').disabled = !s.is_running;
@@ -977,6 +985,7 @@ function renderCards(data) {
         <div style="display:flex;align-items:center;min-height:16px;">
           <span class="card-players">${players}</span>
           <span class="card-crash">${crashBadge}</span>
+          <span class="card-stop-timer">${stopBadge}</span>
         </div>
         <div class="card-btns">
           <button class="btn btn-bright-green  btn-sm btn-start"   onclick="cardAction('${key}','start')"   ${s.is_running||s.is_starting?'disabled':''}>Start</button>
@@ -1353,6 +1362,7 @@ def get_defaults():
         },
         "network": {
             "rcon_host": "127.0.0.1",
+            "web_status_port": "5000",
         },
         "paths": {
             "server_root": r"C:\ASA_Cluster\asa_server",
@@ -1369,7 +1379,6 @@ def get_defaults():
             "gc_purge_interval": "30",
         },
         "timers": {
-            "poll_seconds": "5",
             "map_shutdown_minutes": "15",
             "startup_grace_minutes": "15",
             "autosave_minutes": "15",
@@ -1403,6 +1412,7 @@ def get_defaults():
             "notify_cluster_events": "true",
         },
         "schedule": {
+            "poll_seconds": "5",
             "check_updates_on_startup": "true",
             "restart_time": "06:00",
         },
@@ -1504,7 +1514,7 @@ input::placeholder { color:#3d4a62; }
   <h1>⚙ Settings</h1>
 </div>
 <div class="notice" id="notice">No config.ini found — defaults loaded. Fill in your values and save.</div>
-<div class="hint">Changes require a controller restart.</div>
+<div class="hint">Most changes apply on the next server start. Schedule, network, and path changes require a controller restart.</div>
 <div class="tab-bar" id="tab-bar"></div>
 <div class="tab-content">
   <div id="form"></div>
@@ -1525,7 +1535,8 @@ const SCHEMA = [
       {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'MyCluster'},
       {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'ChangeMe123'},
       {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
-      {s:'network',    k:'rcon_host',      label:'RCON Host',      ph:'127.0.0.1'},
+      {s:'network',    k:'rcon_host',      label:'RCON Host',           ph:'127.0.0.1'},
+      {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
     ]},
     { title:'Dashboard Login', fields:[
       {s:'auth', k:'username',      label:'Username',         ph:'admin',   hint:'Login username for the dashboard'},

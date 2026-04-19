@@ -51,6 +51,18 @@ def _ci2(section: str, key: str, fallback: str, alt_section: str) -> str:
     v = _ci(section, key, None)
     return v if v is not None else _ci(alt_section, key, fallback)
 
+def _ci_int(section: str, key: str, fallback: int, *, multiplier: int = 1) -> int:
+    """Like _ci() but converts to int safely — bad values log a warning and use the fallback."""
+    raw = _ci(section, key, None)
+    if raw is None:
+        return fallback * multiplier
+    try:
+        return int(raw) * multiplier
+    except ValueError:
+        print(f"WARNING: config [{section}] {key} = {raw!r} is not a valid integer "
+              f"— using default {fallback * multiplier}")
+        return fallback * multiplier
+
 # ── Cluster / network / paths ─────────────────────────────────────────────────
 CLUSTER_NAME   = _ci("cluster", "cluster_name",  "MyCluster")
 CLUSTER_ID     = CLUSTER_NAME.replace(" ", "") + "Cluster"
@@ -62,32 +74,32 @@ HOST           = _ci("network", "rcon_host",     "127.0.0.1")
 DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "ragnarok")
 
 # ── Limits (formerly [performance]) ───────────────────────────────────────────
-MAX_ACTIVE_SERVERS       = int(_ci2("limits", "max_active_servers",    "3",    "performance"))
-MAX_PLAYERS              = int(_ci2("limits", "max_players",           "70",   "performance"))
-MAX_TAMED_DINOS          = int(_ci("limits",  "max_tamed_dinos",       "5000"))
-MAX_PERSONAL_TAMED_DINOS = int(_ci("limits",  "max_personal_tamed_dinos", "40"))
+MAX_ACTIVE_SERVERS       = _ci_int("limits", "max_active_servers",    3)
+MAX_PLAYERS              = _ci_int("limits", "max_players",           70)
+MAX_TAMED_DINOS          = _ci_int("limits", "max_tamed_dinos",       5000)
+MAX_PERSONAL_TAMED_DINOS = _ci_int("limits", "max_personal_tamed_dinos", 40)
 
 # ── Schedule ──────────────────────────────────────────────────────────────────
-POLL_SECONDS             = int(_ci2("schedule", "poll_seconds",           "5",      "timers"))
+POLL_SECONDS             = _ci_int("schedule", "poll_seconds",            5)
 RESTART_TIME             = _ci("schedule", "restart_time",                "")
 CHECK_UPDATES_ON_STARTUP = _ci("schedule", "check_updates_on_startup",   "true").lower() == "true"
 
 # ── Timers ────────────────────────────────────────────────────────────────────
-MAP_SHUTDOWN_DELAY_SECONDS      = int(_ci("timers", "map_shutdown_minutes",          "15")) * 60
-STARTUP_GRACE_SECONDS           = int(_ci("timers", "startup_grace_minutes",         "15")) * 60
-AUTOSAVE_SECONDS                = int(_ci("timers", "autosave_minutes",              "15")) * 60
-CLUSTER_SHUTDOWN_DELAY_SECONDS  = int(_ci("timers", "cluster_shutdown_minutes",      "30")) * 60
-SERVER_START_TIMEOUT_SECONDS    = int(_ci("timers", "server_start_timeout_seconds",  "300"))
-SAVE_BEFORE_EXIT_WAIT_SECONDS   = int(_ci("timers", "save_before_exit_seconds",      "10"))
-POST_SHUTDOWN_WAIT_SECONDS      = int(_ci("timers", "post_shutdown_wait_seconds",    "60"))
-CRASH_DETECTION_THRESHOLD       = int(_ci("timers", "crash_detection_threshold",     "5"))
+MAP_SHUTDOWN_DELAY_SECONDS      = _ci_int("timers", "map_shutdown_minutes",          15,  multiplier=60)
+STARTUP_GRACE_SECONDS           = _ci_int("timers", "startup_grace_minutes",         15,  multiplier=60)
+AUTOSAVE_SECONDS                = _ci_int("timers", "autosave_minutes",              15,  multiplier=60)
+CLUSTER_SHUTDOWN_DELAY_SECONDS  = _ci_int("timers", "cluster_shutdown_minutes",      30,  multiplier=60)
+SERVER_START_TIMEOUT_SECONDS    = _ci_int("timers", "server_start_timeout_seconds",  300)
+SAVE_BEFORE_EXIT_WAIT_SECONDS   = _ci_int("timers", "save_before_exit_seconds",      10)
+POST_SHUTDOWN_WAIT_SECONDS      = _ci_int("timers", "post_shutdown_wait_seconds",    60)
+CRASH_DETECTION_THRESHOLD       = _ci_int("timers", "crash_detection_threshold",     5)
 SHUTDOWN_WARNING_MINUTES        = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 
 # ── Auto-restart on crash ─────────────────────────────────────────────────────
 AUTO_RESTART_ON_CRASH    = _ci("crash", "auto_restart_on_crash",  "true").lower() == "true"
-CRASH_COOLDOWN_MINUTES   = int(_ci("crash", "crash_cooldown_minutes",  "5"))
-MAX_CRASH_RESTARTS       = int(_ci("crash", "max_crash_restarts",      "3"))
-CRASH_WINDOW_MINUTES     = int(_ci("crash", "crash_window_minutes",    "60"))
+CRASH_COOLDOWN_MINUTES   = _ci_int("crash", "crash_cooldown_minutes",  5)
+MAX_CRASH_RESTARTS       = _ci_int("crash", "max_crash_restarts",      3)
+CRASH_WINDOW_MINUTES     = _ci_int("crash", "crash_window_minutes",    60)
 
 # ── Discord ───────────────────────────────────────────────────────────────────
 DISCORD_BOT_TOKEN              = _ci("discord", "bot_token",                "")
@@ -445,7 +457,8 @@ class DiscordBot:
             return
 
         # Role check — re-read from config so changes take effect without restart
-        admin_role = (_cfg.get("discord", "admin_role_name") if _cfg.has_option("discord", "admin_role_name") else "Admin").strip()
+        _rc = _read_live_cfg()
+        admin_role = (_rc.get("discord", "admin_role_name") if _rc.has_option("discord", "admin_role_name") else "Admin").strip()
         role_names = [r.name for r in message.author.roles]
         if admin_role not in role_names:
             await message.reply(f"❌ You need the **{admin_role}** role to use bot commands.")
@@ -998,9 +1011,14 @@ def start_server(key: str) -> bool:
         log(f"ArkAscendedServer.exe not found at: {exe}")
         return False
 
-    _patch_game_user_settings()
-    _patch_game_ini()
-    _patch_engine_ini()
+    try:
+        _patch_game_user_settings()
+        _patch_game_ini()
+        _patch_engine_ini()
+    except Exception as _patch_exc:
+        log(f"ERROR: Failed to patch server config files for {key}: {_patch_exc}")
+        log(f"       Server will not start — fix the path/permissions issue and retry.")
+        return False
 
     # Re-read config fresh so settings-page changes apply without a controller restart
     _lc = _read_live_cfg()
@@ -1220,15 +1238,18 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
             return
         requested = normalize_map_name(start_match.group(1))
         if not requested:
+            announce(origin, f"Unknown map '{start_match.group(1)}'. Type !help for map names.")
             return
         state = SERVER_STATES[requested]
         if state.is_running or state.is_starting:
+            announce(origin, f"{state.cfg.display_name} is already online or starting.")
             return
         active = len(active_servers())
         if active >= MAX_ACTIVE_SERVERS:
             announce(origin, f"Max servers active ({active}/{MAX_ACTIVE_SERVERS})")
             return
         start_server(requested)
+        announce(origin, f"{state.cfg.display_name} is starting up — give it a few minutes.")
         return
 
     stop_match = re.match(r"!stop\s+(.+)", lowered)
@@ -1310,7 +1331,7 @@ def send_admin_help() -> None:
     log("  shutdown cluster")
     log("  shutdown cluster now")
     log("  shutdown cluster <time>   (e.g. 30m, 1h, 1h30m)")
-    log("  force shutdown cluster    (kills all immediately — confirm dialog shown in dashboard)")
+    log("  force shutdown cluster    (kills all immediately — dashboard shows a confirm dialog; direct console command is immediate with no confirmation)")
     log("  restart")
     log("  restart now")
     log("  restart <time>")
@@ -1503,7 +1524,7 @@ def perform_cluster_shutdown() -> None:
     for state in list(online_servers()):
         save_world(state)
 
-    time.sleep(10)
+    time.sleep(SAVE_BEFORE_EXIT_WAIT_SECONDS)
 
     announce_all_online("Cluster shutting down now")
 
@@ -1584,6 +1605,9 @@ def schedule_cluster_shutdown(delay_seconds: int = 0) -> None:
 
 
 def cancel_cluster_shutdown() -> None:
+    if not CLUSTER.shutdown_scheduled:
+        log("cancel shutdown: no shutdown is currently scheduled — nothing to cancel.")
+        return
     if CLUSTER.shutdown_scheduled:
         CLUSTER.shutdown_scheduled = False
         CLUSTER.shutdown_at = None
@@ -1610,7 +1634,7 @@ def perform_cluster_restart() -> None:
     for state in list(online_servers()):
         save_world(state)
 
-    time.sleep(10)
+    time.sleep(SAVE_BEFORE_EXIT_WAIT_SECONDS)
 
     announce_all_online("Server restarting now. Be back in a moment!")
 
