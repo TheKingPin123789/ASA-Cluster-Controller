@@ -2021,7 +2021,7 @@ button:hover { background: #1d4ed8; }
 
 @app.route("/login", methods=["GET"])
 def login_page():
-    if session.get("logged_in"):
+    if not _auth_enabled() or session.get("logged_in"):
         return redirect("/")
     next_url = _safe_next(request.args.get("next", "/"))
     return render_template_string(LOGIN_PAGE, error=None, next=next_url)
@@ -2068,8 +2068,7 @@ if __name__ == "__main__":
         _auth_cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
-    _has_hash = bool(_auth_cfg.get("auth", "password_hash", fallback="").strip()
-                     if _auth_cfg.has_section("auth") else "")
+    _has_hash = bool(_auth_cfg.get("auth", "password_hash", fallback="").strip())
     if _has_hash:
         _stored_user = _auth_cfg.get("auth", "username", fallback="admin")
         print(f"Dashboard login enabled — username: {_stored_user}")
