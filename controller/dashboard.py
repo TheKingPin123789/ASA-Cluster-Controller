@@ -75,15 +75,19 @@ def _check_credentials(username: str, password: str) -> bool:
     cfg = _get_auth_cfg()
     stored_user = cfg.get("auth", "username", fallback="admin").strip()
     stored_hash = cfg.get("auth", "password_hash", fallback="").strip()
-    # Fallback: if no hash stored yet, accept default password 'admin' and migrate
     if not stored_hash:
-        return username == stored_user and password == "admin"
+        # No hash stored — refuse login rather than silently accepting a default.
+        # This protects against config corruption resetting access to 'admin'.
+        # Run reset_password.bat (or restart the dashboard fresh) to restore defaults.
+        return False
     return username == stored_user and _hash_password(password) == stored_hash
 
 
 def _auth_enabled() -> bool:
-    """Auth is enabled whenever a username is configured (always true by design)."""
-    return True
+    """Auth is enabled only when a password hash is present in config.
+    If the wizard was run without setting credentials, the dashboard opens freely."""
+    cfg = _get_auth_cfg()
+    return bool(cfg.get("auth", "password_hash", fallback="").strip())
 
 
 def _safe_next(url: str) -> str:
@@ -96,10 +100,11 @@ def _safe_next(url: str) -> str:
 
 
 def login_required(f):
-    """Decorator — redirects to /login for page routes, returns 401 for API routes."""
+    """Decorator — bypassed entirely when no password is configured.
+    When auth is enabled: redirects to /login for page routes, returns 401 for API routes."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("logged_in"):
+        if _auth_enabled() and not session.get("logged_in"):
             if request.path.startswith("/api/"):
                 return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for("login_page", next=request.path))
@@ -169,7 +174,7 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .btn-orange { background: #78350f; color: #fdba74; }
 .btn-blue   { background: #1e3a5f; color: #93c5fd; }
 .btn-gray   { background: #374151; color: #9ca3af; }
-.btn-bright-green  { background: #16a34a; color: #ffffff; }
+.btn-bright-green  { background: #22c55e; color: #ffffff; }
 .btn-bright-red    { background: #dc2626; color: #ffffff; }
 .btn-bright-orange { background: #ea580c; color: #ffffff; }
 .btn-full { width: 100%; }
@@ -242,6 +247,15 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 .pm-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
 .pm-close { align-self:flex-end; cursor:pointer; font-size:20px; color:#4b5563; line-height:1; margin-top:-8px; }
 
+/* Force-shutdown confirm modal */
+#confirm-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:2000; align-items:center; justify-content:center; }
+#confirm-modal.open { display:flex; }
+#confirm-modal-box { background:#1a1f36; border:2px solid #7f1d1d; border-radius:8px; padding:24px 26px; max-width:460px; width:90%; display:flex; flex-direction:column; gap:14px; }
+.cm-title { font-size:18px; font-weight:700; color:#f87171; display:flex; align-items:center; gap:8px; }
+.cm-body { font-size:14px; color:#dde1e7; line-height:1.65; }
+.cm-body ul { margin:8px 0 0 18px; color:#fca5a5; }
+.cm-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
+
 /* Settings window */
 .settings-section { margin-top: 10px; }
 .settings-section .sec-title { margin-bottom: 6px; padding-bottom:3px; border-bottom:1px solid #2a3050; }
@@ -287,7 +301,7 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
     <!-- Controls tab -->
     <div id="tab-controls" class="tab-panel active">
-      <button id="btn-start-cluster" class="btn btn-green btn-full" onclick="cmd('start cluster')">Start Cluster</button>
+      <button id="btn-start-cluster" class="btn btn-bright-green btn-full" onclick="cmd('start cluster')">Start Cluster</button>
 
       <div class="sec">
         <div class="sec-title">Cluster Actions</div>
@@ -426,6 +440,27 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
   </div>
 </div>
 
+<!-- Force-shutdown confirmation modal -->
+<div id="confirm-modal" onclick="if(event.target===this)cancelForceShutdown()">
+  <div id="confirm-modal-box">
+    <div class="cm-title">&#9888; Force Shutdown Cluster</div>
+    <div class="cm-body">
+      This will <strong>immediately kill all server processes</strong> with no grace period.
+      <ul>
+        <li>No world save &mdash; unsaved progress will be <strong>lost</strong></li>
+        <li>No DoExit &mdash; processes terminated with taskkill&nbsp;/F</li>
+        <li>Servers still starting up are killed instantly</li>
+        <li>All players disconnected without any in-game warning</li>
+      </ul>
+    </div>
+    <div class="cm-actions">
+      <button class="btn btn-gray" onclick="cancelForceShutdown()">Cancel</button>
+      <button class="btn" style="background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b"
+              onclick="confirmForceShutdown()">Force Shutdown</button>
+    </div>
+  </div>
+</div>
+
 <!-- Player detail modal -->
 <div id="player-modal" onclick="if(event.target===this)closePlayerModal()">
   <div id="player-modal-box">
@@ -483,7 +518,7 @@ async function loadWlTab() {
 async function loadCmdCategories() {
   try {
     const r = await apiFetch('/api/command_categories');
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderCmdCategories(data.categories || {}, data.available || []);
   } catch(e) {}
@@ -550,13 +585,15 @@ async function addWlPlayer() {
   if (!id) return;
   cmd('whitelist add ' + id);
   inp.value = '';
-  setTimeout(loadWlPanel, 600);
+  // Wait slightly longer than the controller's poll interval so the command
+  // is processed before we re-fetch the whitelist (avoids showing stale data).
+  setTimeout(loadWlPanel, 6000);
 }
 
 async function loadAdminPanel() {
   try {
     const r = await apiFetch('/api/admin_list');
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderAdminPanel(data.entries || []);
   } catch(e) {}
@@ -652,9 +689,30 @@ function sendConsole() {
   const el = document.getElementById('cmd-input');
   const v = el.value.trim();
   if (!v) return;
+  if (v.toLowerCase() === 'force shutdown cluster') {
+    el.value = '';
+    openForceShutdownConfirm();
+    return;
+  }
   echoConsole('> ' + v);
   cmd(v);
   el.value = '';
+}
+
+// ── Force-shutdown confirm modal ──────────────────────────────────────────────
+function openForceShutdownConfirm() {
+  document.getElementById('confirm-modal').classList.add('open');
+}
+
+function cancelForceShutdown() {
+  document.getElementById('confirm-modal').classList.remove('open');
+  echoConsole('> force shutdown cluster (cancelled)');
+}
+
+function confirmForceShutdown() {
+  document.getElementById('confirm-modal').classList.remove('open');
+  echoConsole('> force shutdown cluster');
+  cmd('force shutdown cluster');
 }
 
 // Run a quick-command button
@@ -690,7 +748,7 @@ let _playerModalCache  = {};   // id -> {name,id,map,mapKey,isOnline,last_seen}
 async function loadWlPanel() {
   try {
     const r = await apiFetch('/api/whitelist');
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderWlPanel(data.entries || []);
   } catch(e) {}
@@ -719,7 +777,7 @@ function renderWlPanel(entries) {
 
 function wlRemove(id) {
   cmd('whitelist remove ' + id);
-  setTimeout(loadWlPanel, 600);
+  setTimeout(loadWlPanel, 6000);
 }
 
 // ── All Players panel ─────────────────────────────────────────────────────────
@@ -735,7 +793,7 @@ function toggleApPanel() {
 async function loadApPanel() {
   try {
     const r = await apiFetch('/api/seen_players');
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderApPanel(data.players || {});
   } catch(e) {}
@@ -848,9 +906,9 @@ function renderPmWl(id, onWl) {
   const safeId = escHtml(id);
   document.getElementById('pm-actions').innerHTML = `
     <button class="btn btn-green btn-sm" ${onWl  ? 'disabled' : ''}
-            onclick="cmd('whitelist add ${safeId}'); renderPmWl('${safeId}', true); setTimeout(loadWlPanel,600)">+WL Add</button>
+            onclick="cmd('whitelist add ${safeId}'); renderPmWl('${safeId}', true); setTimeout(loadWlPanel,6000)">+WL Add</button>
     <button class="btn btn-red btn-sm"   ${!onWl ? 'disabled' : ''}
-            onclick="cmd('whitelist remove ${safeId}'); renderPmWl('${safeId}', false); setTimeout(loadWlPanel,600)">−WL Remove</button>
+            onclick="cmd('whitelist remove ${safeId}'); renderPmWl('${safeId}', false); setTimeout(loadWlPanel,6000)">−WL Remove</button>
   `;
 }
 
@@ -885,7 +943,7 @@ function renderCards(data) {
   const anyActive = Object.values(data.servers).some(s => s.is_running || s.is_starting);
   const startBtn = document.getElementById('btn-start-cluster');
   startBtn.disabled = anyActive;
-  startBtn.className = 'btn btn-full ' + (anyActive ? 'btn-gray' : 'btn-green');
+  startBtn.className = 'btn btn-full ' + (anyActive ? 'btn-gray' : 'btn-bright-green');
 
   const runCount = Object.values(data.servers).filter(s => s.is_running).length;
   document.getElementById('status-line').textContent =
@@ -899,6 +957,13 @@ function renderCards(data) {
     const crashBadge = (s.crash_restart_count > 0)
       ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
       : '';
+    // Per-server stop countdown — shown when an admin has scheduled a map shutdown
+    const stopMins = (s.manual_stop_in != null)
+      ? Math.ceil(s.manual_stop_in / 60)
+      : null;
+    const stopBadge = (stopMins != null)
+      ? `<span title="Scheduled shutdown" style="font-size:11px;color:#fbbf24;margin-left:4px;">&#9201; ${stopMins}m</span>`
+      : '';
 
     if (cardEls[key]) {
       const c = cardEls[key];
@@ -907,6 +972,7 @@ function renderCards(data) {
       c.querySelector('.badge').textContent = label;
       c.querySelector('.card-players').textContent = players;
       c.querySelector('.card-crash').innerHTML = crashBadge;
+      c.querySelector('.card-stop-timer').innerHTML = stopBadge;
       c.querySelector('.btn-start').disabled   = s.is_running || s.is_starting;
       c.querySelector('.btn-stop').disabled    = !s.is_running;
       c.querySelector('.btn-restart').disabled = !s.is_running;
@@ -922,6 +988,7 @@ function renderCards(data) {
         <div style="display:flex;align-items:center;min-height:16px;">
           <span class="card-players">${players}</span>
           <span class="card-crash">${crashBadge}</span>
+          <span class="card-stop-timer">${stopBadge}</span>
         </div>
         <div class="card-btns">
           <button class="btn btn-bright-green  btn-sm btn-start"   onclick="cardAction('${key}','start')"   ${s.is_running||s.is_starting?'disabled':''}>Start</button>
@@ -967,7 +1034,7 @@ function tickTimer() {
 setInterval(tickTimer, 1000);
 
 // ── Session expiry handling ───────────────────────────────────────────────────
-// Wraps apiFetch() — redirects to /login automatically on 401 (session expired)
+// Wraps fetch() — redirects to /login automatically on 401 (session expired)
 async function apiFetch(url, opts) {
   const r = await fetch(url, opts);
   if (r.status === 401) { window.location.href = '/login'; return null; }
@@ -1298,6 +1365,7 @@ def get_defaults():
         },
         "network": {
             "rcon_host": "127.0.0.1",
+            "web_status_port": "5000",
         },
         "paths": {
             "server_root": r"C:\ASA_Cluster\asa_server",
@@ -1314,7 +1382,6 @@ def get_defaults():
             "gc_purge_interval": "30",
         },
         "timers": {
-            "poll_seconds": "5",
             "map_shutdown_minutes": "15",
             "startup_grace_minutes": "15",
             "autosave_minutes": "15",
@@ -1336,7 +1403,19 @@ def get_defaults():
             "max_crash_restarts": "3",
             "crash_window_minutes": "60",
         },
+        "discord": {
+            "use_bot": "false",
+            "webhook_url": "",
+            "bot_token": "",
+            "notification_channel_id": "",
+            "command_channel_id": "",
+            "admin_role_name": "Admin",
+            "notify_server_events": "true",
+            "notify_crash_events": "true",
+            "notify_cluster_events": "true",
+        },
         "schedule": {
+            "poll_seconds": "5",
             "check_updates_on_startup": "true",
             "restart_time": "06:00",
         },
@@ -1416,6 +1495,18 @@ input:focus { outline:none; border-color:#3b4a7a; }
 .sec-head:first-child { margin-top:0; }
 input::placeholder { color:#3d4a62; }
 .breed-hint { font-size:12px; color:#4ade80; display:block; margin-top:3px; }
+
+/* Toggle switch */
+.toggle-label { display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none; font-size:14px; padding:4px 0; }
+.toggle-cb { display:none; }
+.toggle-track { width:42px; height:22px; background:#374151; border-radius:11px; position:relative; flex-shrink:0; transition:background .2s; }
+.toggle-thumb { width:18px; height:18px; background:#fff; border-radius:50%; position:absolute; top:2px; left:2px; transition:left .2s; }
+.toggle-cb:checked + .toggle-track { background:#3b82f6; }
+.toggle-cb:checked + .toggle-track .toggle-thumb { left:22px; }
+
+/* Info box */
+.info-box { background:#1a2540; border:1px solid #3b4a7a; border-radius:6px; padding:12px 14px; font-size:13px; line-height:1.7; color:#c9d1e0; }
+.info-box b { color:#93c5fd; }
 </style>
 </head>
 <body>
@@ -1426,7 +1517,7 @@ input::placeholder { color:#3d4a62; }
   <h1>⚙ Settings</h1>
 </div>
 <div class="notice" id="notice">No config.ini found — defaults loaded. Fill in your values and save.</div>
-<div class="hint">Changes require a controller restart.</div>
+<div class="hint">Most changes apply on the next server start. Schedule, network, and path changes require a controller restart.</div>
 <div class="tab-bar" id="tab-bar"></div>
 <div class="tab-content">
   <div id="form"></div>
@@ -1447,7 +1538,8 @@ const SCHEMA = [
       {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'MyCluster'},
       {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'ChangeMe123'},
       {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
-      {s:'network',    k:'rcon_host',      label:'RCON Host',      ph:'127.0.0.1'},
+      {s:'network',    k:'rcon_host',      label:'RCON Host',           ph:'127.0.0.1'},
+      {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
     ]},
     { title:'Dashboard Login', fields:[
       {s:'auth', k:'username',      label:'Username',         ph:'admin',   hint:'Login username for the dashboard'},
@@ -1500,6 +1592,35 @@ const SCHEMA = [
       {s:'crash', k:'crash_cooldown_minutes', label:'Cooldown (min)',         ph:'5',     hint:'Minimum minutes between crash-restarts — prevents rapid restart loops'},
       {s:'crash', k:'max_crash_restarts',     label:'Max Restarts',          ph:'3',     hint:'Max times to restart within the window before giving up'},
       {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
+    ]},
+    { title:'Discord Notifications', fields:[
+      {s:'discord', k:'use_bot', label:'Enable Two-Way Bot (advanced)', type:'checkbox', ph:'false',
+        hint:'Off = simple webhook (one-way notifications). On = full Discord bot with commands from Discord.'},
+      {s:'discord', k:'webhook_url', label:'Webhook URL', ph:'https://discord.com/api/webhooks/...', wide:true, visGroup:'webhook',
+        hint:'Paste your Discord channel webhook URL — Discord → channel settings → Integrations → Webhooks → New Webhook → Copy URL'},
+    ]},
+    { title:'Notification Events', grid:true, fields:[
+      {s:'discord', k:'notify_server_events',  label:'Server Online',  ph:'true', hint:'Notify when a server comes online'},
+      {s:'discord', k:'notify_crash_events',   label:'Crash Events',   ph:'true', hint:'Notify on crash, auto-restart, and crash limit reached'},
+      {s:'discord', k:'notify_cluster_events', label:'Cluster Events', ph:'true', hint:'Notify on cluster restarts, shutdowns, and scheduled events'},
+    ]},
+    { title:'Bot Setup (Two-Way)', fields:[
+      {type:'info', visGroup:'bot', html:`
+        <b>How to set up the Discord bot:</b><br>
+        1. Go to <a href="https://discord.com/developers/applications" target="_blank" style="color:#93c5fd">discord.com/developers/applications</a> → New Application<br>
+        2. Go to <b>Bot</b> → enable <b>Message Content Intent</b> → copy the <b>Token</b><br>
+        3. Go to <b>OAuth2 → URL Generator</b> → tick <b>bot</b> scope → tick <b>Send Messages, Embed Links, Read Message History</b> → copy the URL → paste in browser to invite the bot to your server<br>
+        4. In Discord: User Settings → Advanced → enable <b>Developer Mode</b> → right-click a channel → <b>Copy Channel ID</b><br>
+        5. Fill in the fields below and save
+      `},
+      {s:'discord', k:'bot_token',               label:'Bot Token',               ph:'your-bot-token-here', wide:true, visGroup:'bot',
+        hint:'From Discord Developer Portal → Your App → Bot → Token'},
+      {s:'discord', k:'notification_channel_id', label:'Notification Channel ID', ph:'123456789012345678',   visGroup:'bot',
+        hint:'Channel where the bot posts events — right-click channel → Copy Channel ID'},
+      {s:'discord', k:'command_channel_id',      label:'Command Channel ID',      ph:'123456789012345678',   visGroup:'bot',
+        hint:'Channel where admins type !commands — leave blank to use the notification channel'},
+      {s:'discord', k:'admin_role_name',         label:'Admin Role Name',         ph:'Admin',                visGroup:'bot',
+        hint:'Discord role name required to use bot commands (e.g. Admin)'},
     ]},
   ]},
   { group:'World & Rates', sections:[
@@ -1635,19 +1756,40 @@ function render(data) {
       else wrap.className = 'stack';
       for (const f of sec.fields) {
         const saved = (data[f.s] || {})[f.k] || '';
-        // Placeholder shows the config.ini value if set, otherwise the hardcoded default
         const ph    = saved || f.ph || '';
         const d = document.createElement('div');
-        d.className = 'field' + (f.wide ? ' wide' : '');
+        let cls = 'field' + (f.wide ? ' wide' : '');
+        if (f.visGroup) cls += ' vis-group-' + f.visGroup;
+        d.className = cls;
+        if (f.visGroup) d.dataset.visGroup = f.visGroup;
+
         const hint = f.rec
           ? `<span class="breed-hint" data-rec="${f.rec}"></span>`
           : f.hint
             ? `<span class="breed-hint">${esc(f.hint)}</span>`
             : '';
-        // Field is always empty — placeholder shows the current config value
-        const inputType = f.type === 'password' ? 'password' : 'text';
-        const autoComp  = f.type === 'password' ? 'new-password' : 'off';
-        d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+
+        // Auto-detect boolean fields: explicit type:'checkbox', or placeholder is 'true'/'false'
+        const isBoolean = f.type === 'checkbox' || f.ph === 'true' || f.ph === 'false';
+        if (isBoolean && f.type !== 'info') {
+          // Toggle switch — value stored as "true"/"false" string in config
+          const val = (saved || f.ph || 'false').trim().toLowerCase();
+          const checked = val === 'true';
+          // Only wire the Discord visibility toggle to the use_bot field
+          const onchg = (f.s === 'discord' && f.k === 'use_bot') ? ' onchange="onDiscordToggle(this)"' : '';
+          d.innerHTML = `<label class="toggle-label">
+            <input type="checkbox" class="toggle-cb" data-s="${f.s}" data-k="${f.k}"${checked ? ' checked' : ''}${onchg}>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            ${esc(f.label)}
+          </label>${hint}`;
+        } else if (f.type === 'info') {
+          d.innerHTML = `<div class="info-box">${f.html}</div>`;
+        } else {
+          // Field is always empty — placeholder shows the current config value
+          const inputType = f.type === 'password' ? 'password' : 'text';
+          const autoComp  = f.type === 'password' ? 'new-password' : 'off';
+          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+        }
         wrap.appendChild(d);
       }
       groupEl.appendChild(wrap);
@@ -1679,6 +1821,25 @@ function wireBreedingHints() {
   }
 }
 
+// ── Discord webhook / bot toggle ────────────────────────────────────────────
+function applyDiscordVisibility(botEnabled) {
+  document.querySelectorAll('[data-vis-group="webhook"]').forEach(el => {
+    el.style.display = botEnabled ? 'none' : '';
+  });
+  document.querySelectorAll('[data-vis-group="bot"]').forEach(el => {
+    el.style.display = botEnabled ? '' : 'none';
+  });
+}
+
+function onDiscordToggle(cb) {
+  applyDiscordVisibility(cb.checked);
+}
+
+function wireDiscordToggle() {
+  const cb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
+  if (cb) applyDiscordVisibility(cb.checked);
+}
+
 async function load() {
   let data = {};
   try {
@@ -1693,6 +1854,7 @@ async function load() {
   buildTabBar();
   render(data);
   wireBreedingHints();
+  wireDiscordToggle();
 }
 
 async function save() {
@@ -1703,8 +1865,15 @@ async function save() {
     const s = i.dataset.s, k = i.dataset.k;
     if (!s || !k) return; // skip inputs without data-s / data-k
     if (!payload[s]) payload[s] = {};
-    // Password fields: send exact value (never fall back to placeholder)
-    payload[s][k] = i.type === 'password' ? i.value : (i.value || i.placeholder);
+    // Checkboxes store "true"/"false" strings; password fields send exact value
+    if (i.type === 'checkbox') {
+      payload[s][k] = i.checked ? 'true' : 'false';
+    } else {
+      // Use !== '' so a user can intentionally clear a field (e.g. mod_ids,
+      // active_event, restart_time). Only fall back to placeholder when the
+      // field is completely untouched (empty because we never set i.value).
+      payload[s][k] = i.type === 'password' ? i.value : (i.value !== '' ? i.value : i.placeholder);
+    }
   });
   const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };
   try {
@@ -1775,10 +1944,16 @@ def restart_dashboard():
     except Exception as exc:
         return jsonify({"error": f"Could not restart dashboard: {exc}"}), 500
 
-    # Give the response a moment to reach the browser before we exit
+    # Give the response a moment to reach the browser before we exit.
+    # Remove the PID file here rather than relying on the finally block —
+    # on Windows, SIGTERM triggers os._exit() which bypasses finally.
     def _delayed_exit():
         import time as _t
         _t.sleep(1)
+        try:
+            os.remove(DASHBOARD_PID_FILE)
+        except FileNotFoundError:
+            pass
         os.kill(os.getpid(), signal.SIGTERM)
 
     import threading
@@ -1846,7 +2021,7 @@ button:hover { background: #1d4ed8; }
 
 @app.route("/login", methods=["GET"])
 def login_page():
-    if session.get("logged_in"):
+    if not _auth_enabled() or session.get("logged_in"):
         return redirect("/")
     next_url = _safe_next(request.args.get("next", "/"))
     return render_template_string(LOGIN_PAGE, error=None, next=next_url)
@@ -1885,23 +2060,20 @@ if __name__ == "__main__":
     app.secret_key = _ensure_secret_key()
     app.permanent_session_lifetime = datetime.timedelta(hours=24)
 
-    # Ensure default credentials exist in config if auth section is missing
+    # Report auth state — credentials are set by the setup wizard or Settings page.
+    # Never auto-create default credentials here; if no password_hash is present,
+    # the dashboard opens without a login page (user opted out during wizard).
     _auth_cfg = configparser.RawConfigParser()
     try:
         _auth_cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
-    if not _auth_cfg.has_section("auth"):
-        _auth_cfg.add_section("auth")
-    if not _auth_cfg.has_option("auth", "username"):
-        _auth_cfg.set("auth", "username", "admin")
-    if not _auth_cfg.has_option("auth", "password_hash"):
-        _auth_cfg.set("auth", "password_hash", _hash_password("admin"))
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as _f:
-            _auth_cfg.write(_f)
-    except Exception:
-        pass
+    _has_hash = bool(_auth_cfg.get("auth", "password_hash", fallback="").strip())
+    if _has_hash:
+        _stored_user = _auth_cfg.get("auth", "username", fallback="admin")
+        print(f"Dashboard login enabled — username: {_stored_user}")
+    else:
+        print("Dashboard login disabled — set a password in Settings to enable it.")
 
     port = _get_web_port()
     try:

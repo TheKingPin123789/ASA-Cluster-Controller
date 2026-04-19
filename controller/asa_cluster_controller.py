@@ -5,7 +5,9 @@ import sys
 import json
 import time
 import shutil
+import asyncio
 import datetime
+import threading
 import subprocess
 import configparser
 import urllib.request
@@ -49,6 +51,18 @@ def _ci2(section: str, key: str, fallback: str, alt_section: str) -> str:
     v = _ci(section, key, None)
     return v if v is not None else _ci(alt_section, key, fallback)
 
+def _ci_int(section: str, key: str, fallback: int, *, multiplier: int = 1) -> int:
+    """Like _ci() but converts to int safely — bad values log a warning and use the fallback."""
+    raw = _ci(section, key, None)
+    if raw is None:
+        return fallback * multiplier
+    try:
+        return int(raw) * multiplier
+    except ValueError:
+        print(f"WARNING: config [{section}] {key} = {raw!r} is not a valid integer "
+              f"— using default {fallback * multiplier}")
+        return fallback * multiplier
+
 # ── Cluster / network / paths ─────────────────────────────────────────────────
 CLUSTER_NAME   = _ci("cluster", "cluster_name",  "MyCluster")
 CLUSTER_ID     = CLUSTER_NAME.replace(" ", "") + "Cluster"
@@ -60,32 +74,41 @@ HOST           = _ci("network", "rcon_host",     "127.0.0.1")
 DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "ragnarok")
 
 # ── Limits (formerly [performance]) ───────────────────────────────────────────
-MAX_ACTIVE_SERVERS       = int(_ci2("limits", "max_active_servers",    "3",    "performance"))
-MAX_PLAYERS              = int(_ci2("limits", "max_players",           "70",   "performance"))
-MAX_TAMED_DINOS          = int(_ci("limits",  "max_tamed_dinos",       "5000"))
-MAX_PERSONAL_TAMED_DINOS = int(_ci("limits",  "max_personal_tamed_dinos", "40"))
+MAX_ACTIVE_SERVERS       = _ci_int("limits", "max_active_servers",    3)
+MAX_PLAYERS              = _ci_int("limits", "max_players",           70)
+MAX_TAMED_DINOS          = _ci_int("limits", "max_tamed_dinos",       5000)
+MAX_PERSONAL_TAMED_DINOS = _ci_int("limits", "max_personal_tamed_dinos", 40)
 
 # ── Schedule ──────────────────────────────────────────────────────────────────
-POLL_SECONDS             = int(_ci2("schedule", "poll_seconds",           "5",      "timers"))
+POLL_SECONDS             = _ci_int("schedule", "poll_seconds",            5)
 RESTART_TIME             = _ci("schedule", "restart_time",                "")
 CHECK_UPDATES_ON_STARTUP = _ci("schedule", "check_updates_on_startup",   "true").lower() == "true"
 
 # ── Timers ────────────────────────────────────────────────────────────────────
-MAP_SHUTDOWN_DELAY_SECONDS      = int(_ci("timers", "map_shutdown_minutes",          "15")) * 60
-STARTUP_GRACE_SECONDS           = int(_ci("timers", "startup_grace_minutes",         "15")) * 60
-AUTOSAVE_SECONDS                = int(_ci("timers", "autosave_minutes",              "15")) * 60
-CLUSTER_SHUTDOWN_DELAY_SECONDS  = int(_ci("timers", "cluster_shutdown_minutes",      "30")) * 60
-SERVER_START_TIMEOUT_SECONDS    = int(_ci("timers", "server_start_timeout_seconds",  "300"))
-SAVE_BEFORE_EXIT_WAIT_SECONDS   = int(_ci("timers", "save_before_exit_seconds",      "10"))
-POST_SHUTDOWN_WAIT_SECONDS      = int(_ci("timers", "post_shutdown_wait_seconds",    "60"))
-CRASH_DETECTION_THRESHOLD       = int(_ci("timers", "crash_detection_threshold",     "5"))
+MAP_SHUTDOWN_DELAY_SECONDS      = _ci_int("timers", "map_shutdown_minutes",          15,  multiplier=60)
+STARTUP_GRACE_SECONDS           = _ci_int("timers", "startup_grace_minutes",         15,  multiplier=60)
+AUTOSAVE_SECONDS                = _ci_int("timers", "autosave_minutes",              15,  multiplier=60)
+CLUSTER_SHUTDOWN_DELAY_SECONDS  = _ci_int("timers", "cluster_shutdown_minutes",      30,  multiplier=60)
+SERVER_START_TIMEOUT_SECONDS    = _ci_int("timers", "server_start_timeout_seconds",  300)
+SAVE_BEFORE_EXIT_WAIT_SECONDS   = _ci_int("timers", "save_before_exit_seconds",      10)
+POST_SHUTDOWN_WAIT_SECONDS      = _ci_int("timers", "post_shutdown_wait_seconds",    60)
+CRASH_DETECTION_THRESHOLD       = _ci_int("timers", "crash_detection_threshold",     5)
 SHUTDOWN_WARNING_MINUTES        = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 
 # ── Auto-restart on crash ─────────────────────────────────────────────────────
 AUTO_RESTART_ON_CRASH    = _ci("crash", "auto_restart_on_crash",  "true").lower() == "true"
-CRASH_COOLDOWN_MINUTES   = int(_ci("crash", "crash_cooldown_minutes",  "5"))
-MAX_CRASH_RESTARTS       = int(_ci("crash", "max_crash_restarts",      "3"))
-CRASH_WINDOW_MINUTES     = int(_ci("crash", "crash_window_minutes",    "60"))
+CRASH_COOLDOWN_MINUTES   = _ci_int("crash", "crash_cooldown_minutes",  5)
+MAX_CRASH_RESTARTS       = _ci_int("crash", "max_crash_restarts",      3)
+CRASH_WINDOW_MINUTES     = _ci_int("crash", "crash_window_minutes",    60)
+
+# ── Discord ───────────────────────────────────────────────────────────────────
+DISCORD_BOT_TOKEN              = _ci("discord", "bot_token",                "")
+DISCORD_NOTIFICATION_CHANNEL   = _ci("discord", "notification_channel_id",  "")
+DISCORD_COMMAND_CHANNEL        = _ci("discord", "command_channel_id",       "")
+DISCORD_ADMIN_ROLE             = _ci("discord", "admin_role_name",          "Admin")
+DISCORD_NOTIFY_SERVER          = _ci("discord", "notify_server_events",     "true").lower() == "true"
+DISCORD_NOTIFY_CRASH           = _ci("discord", "notify_crash_events",      "true").lower() == "true"
+DISCORD_NOTIFY_CLUSTER         = _ci("discord", "notify_cluster_events",    "true").lower() == "true"
 
 # ── Backup ────────────────────────────────────────────────────────────────────
 BACKUP_DIR  = _ci("backup", "backup_dir",   os.path.join(os.path.dirname(SERVER_ROOT), "backups"))
@@ -276,6 +299,8 @@ class ServerState:
     # True only when the server went offline due to a crash (not a manual stop)
     # — guards the cooldown-retry so intentional shutdowns don't auto-restart
     crash_offline: bool = False
+    # PID of the last Popen'd server process — used to force-kill on shutdown
+    process_pid: int = 0
 
 
 @dataclass
@@ -285,6 +310,9 @@ class ClusterState:
     last_announcement_remaining: Optional[int] = None
     cluster_stopped: bool = False
     restart_pending: bool = False
+    # Set to True after the shutdown Discord message is sent so no further
+    # Discord notifications go out while servers are winding down / starting
+    discord_silent: bool = False
 
 
 SERVER_STATES: Dict[str, ServerState] = {k: ServerState(cfg=v) for k, v in SERVERS.items()}
@@ -320,6 +348,271 @@ def log(msg: str) -> None:
             f.write(line + "\n")
     except Exception:
         pass
+
+
+# Discord embed colour constants
+_DC_GREEN  = 3066993   # server online
+_DC_RED    = 15158332  # crash / offline
+_DC_ORANGE = 16744272  # warning / cooldown
+_DC_BLUE   = 3447003   # cluster restart / info
+_DC_GREY   = 10070709  # cluster shutdown
+
+
+def _dc_flag(key: str, default: str = "true") -> bool:
+    """Read a discord toggle from config (re-read each call for live changes)."""
+    c = _read_live_cfg()
+    return (c.get("discord", key) if c.has_option("discord", key) else default).lower() == "true"
+
+
+class DiscordBot:
+    """Runs a discord.py client in a background daemon thread.
+
+    Call start() once from main() — it no-ops if the bot is not configured.
+    Use send() from any thread to post an embed to the notification channel.
+    Commands typed in the command channel are dispatched to handle_admin_command().
+    """
+
+    def __init__(self) -> None:
+        self._loop:          Optional[asyncio.AbstractEventLoop] = None
+        self._client                                             = None
+        self._notif_channel                                      = None
+        self._notif_channel_id: int                              = 0
+        self._cmd_channel_id:   int                              = 0
+        self._ready:            bool                             = False
+
+    # ── startup ──────────────────────────────────────────────────────────────
+
+    def start(self) -> None:
+        """Spin the bot up in a daemon thread. Silent no-op if not configured or use_bot=false."""
+        use_bot  = (_cfg.get("discord", "use_bot")                 if _cfg.has_option("discord", "use_bot")                 else "false").strip().lower() == "true"
+        token    = (_cfg.get("discord", "bot_token")               if _cfg.has_option("discord", "bot_token")               else "").strip()
+        notif_id = (_cfg.get("discord", "notification_channel_id") if _cfg.has_option("discord", "notification_channel_id") else "").strip()
+        cmd_id   = (_cfg.get("discord", "command_channel_id")      if _cfg.has_option("discord", "command_channel_id")      else "").strip()
+
+        if not use_bot or not token or not notif_id:
+            return  # webhook mode or not configured — stay silent
+
+        try:
+            self._notif_channel_id = int(notif_id)
+            self._cmd_channel_id   = int(cmd_id) if cmd_id else self._notif_channel_id
+        except ValueError:
+            log("Discord: invalid channel ID in config — bot not started")
+            return
+
+        t = threading.Thread(target=self._run, args=(token,), daemon=True, name="DiscordBot")
+        t.start()
+
+    def _run(self, token: str) -> None:
+        try:
+            import discord  # type: ignore
+        except ImportError:
+            log("Discord: discord.py not installed — run: pip install discord.py")
+            return
+
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
+        intents = discord.Intents.default()
+        intents.message_content = True
+        self._client = discord.Client(intents=intents)
+
+        @self._client.event
+        async def on_ready() -> None:
+            self._notif_channel = self._client.get_channel(self._notif_channel_id)
+            if not self._notif_channel:
+                log(f"Discord: notification channel {self._notif_channel_id} not found — "
+                    f"check the channel ID and that the bot has access to it")
+            else:
+                self._ready = True
+            log(f"Discord bot online as {self._client.user}")
+
+        @self._client.event
+        async def on_message(message) -> None:
+            if message.author == self._client.user:
+                return
+            if message.channel.id != self._cmd_channel_id:
+                return
+            if not message.content.strip().startswith("!"):
+                return
+            await self._dispatch(message)
+
+        try:
+            self._loop.run_until_complete(self._client.start(token))
+        except Exception as exc:
+            log(f"Discord bot error: {exc}")
+
+    # ── command dispatch ──────────────────────────────────────────────────────
+
+    async def _dispatch(self, message) -> None:
+        import discord  # type: ignore
+
+        # Guard: bot commands only work in guild (server) channels, not DMs
+        if not hasattr(message.author, "roles"):
+            await message.reply("❌ Bot commands only work in a server channel, not in DMs.")
+            return
+
+        # Guard: event loop must be ready
+        if not self._loop:
+            await message.reply("❌ Bot is still initialising — try again in a moment.")
+            return
+
+        # Role check — re-read from config so changes take effect without restart
+        _rc = _read_live_cfg()
+        admin_role = (_rc.get("discord", "admin_role_name") if _rc.has_option("discord", "admin_role_name") else "Admin").strip()
+        role_names = [r.name for r in message.author.roles]
+        if admin_role not in role_names:
+            await message.reply(f"❌ You need the **{admin_role}** role to use bot commands.")
+            return
+
+        parts = message.content.strip().split()
+        base  = parts[0].lower()   # e.g. "!status"
+        arg   = parts[1].lower() if len(parts) > 1 else ""
+
+        if base == "!help":
+            map_list = ", ".join(SERVERS.keys())
+            embed = discord.Embed(title="ASA Controller Commands", color=_DC_BLUE)
+            embed.add_field(name="!status",         value="Cluster overview",                    inline=False)
+            embed.add_field(name="!players",        value="Who's online on each server",         inline=False)
+            embed.add_field(name="!start",          value="Start the cluster",                   inline=False)
+            embed.add_field(name="!start <map>",    value="Start a specific map",                inline=False)
+            embed.add_field(name="!stop",           value="Shutdown the cluster (with warning)", inline=False)
+            embed.add_field(name="!stop <map>",     value="Stop a specific map (with warning)",  inline=False)
+            embed.add_field(name="!restart",        value="Restart the cluster (with warning)",  inline=False)
+            embed.add_field(name="Maps",            value=f"`{map_list}`",                       inline=False)
+            await message.channel.send(embed=embed)
+            return
+
+
+        if base == "!status":
+            # Snapshot to avoid race condition if main thread modifies SERVER_STATES
+            states = list(SERVER_STATES.values())
+            lines = []
+            for state in states:
+                if state.is_running:
+                    lines.append(f"🟢 **{state.cfg.display_name}** — {state.player_count} player(s)")
+                elif state.is_starting:
+                    lines.append(f"🟡 **{state.cfg.display_name}** — starting…")
+                else:
+                    lines.append(f"🔴 **{state.cfg.display_name}** — offline")
+            total = sum(s.player_count for s in states)
+            embed = discord.Embed(
+                title=f"{CLUSTER_NAME} — Status",
+                description="\n".join(lines) or "No servers configured",
+                color=_DC_BLUE,
+            )
+            embed.set_footer(text=f"Total players online: {total}")
+            await message.channel.send(embed=embed)
+            return
+
+        if base == "!players":
+            # Snapshot to avoid race condition
+            states = list(SERVER_STATES.values())
+            embed = discord.Embed(title=f"{CLUSTER_NAME} — Players Online", color=_DC_BLUE)
+            any_online = False
+            for state in states:
+                if state.is_running and state.player_list:
+                    names = "\n".join(p.get("name", "Unknown") for p in list(state.player_list))
+                    embed.add_field(name=state.cfg.display_name, value=names, inline=True)
+                    any_online = True
+            if not any_online:
+                embed.description = "No players online right now."
+            await message.channel.send(embed=embed)
+            return
+
+        if base == "!start":
+            if arg:
+                map_key = normalize_map_name(arg)
+                if not map_key or map_key not in SERVER_STATES:
+                    await message.reply(f"❌ Unknown map: `{arg}`")
+                    return
+                display = SERVER_STATES[map_key].cfg.display_name
+                await self._loop.run_in_executor(None, handle_admin_command, f"start {map_key}")
+                await message.reply(f"✅ Starting **{display}**…")
+            else:
+                await self._loop.run_in_executor(None, handle_admin_command, "start cluster")
+                await message.reply("✅ Starting cluster…")
+            return
+
+        if base == "!stop":
+            if arg:
+                map_key = normalize_map_name(arg)
+                if not map_key or map_key not in SERVER_STATES:
+                    await message.reply(f"❌ Unknown map: `{arg}`")
+                    return
+                display = SERVER_STATES[map_key].cfg.display_name
+                await self._loop.run_in_executor(None, handle_admin_command, f"stop {map_key}")
+                await message.reply(f"✅ Stopping **{display}** (warning sent to players)…")
+            else:
+                await self._loop.run_in_executor(None, handle_admin_command, "shutdown cluster")
+                await message.reply("✅ Cluster shutdown initiated (players warned)…")
+            return
+
+        if base == "!restart":
+            await self._loop.run_in_executor(None, handle_admin_command, "restart")
+            await message.reply("✅ Cluster restart initiated (players warned)…")
+            return
+
+        await message.reply("❌ Unknown command. Type `!help` for the list.")
+
+    # ── send (thread-safe) ────────────────────────────────────────────────────
+
+    def send(self, message: str, color: int = _DC_BLUE, title: str = "") -> None:
+        """Post an embed to the notification channel. Safe to call from any thread."""
+        if not self._ready or not self._notif_channel or not self._loop:
+            log("Discord: bot not ready — notification dropped (bot still starting or channel not found)")
+            return
+        try:
+            import discord  # type: ignore
+            embed = discord.Embed(description=message, color=color)
+            if title:
+                embed.title = title
+            asyncio.run_coroutine_threadsafe(
+                self._notif_channel.send(embed=embed),
+                self._loop,
+            )
+        except Exception as exc:
+            log(f"Discord send failed: {exc}")
+
+
+# Global bot instance — started in main()
+DISCORD_BOT = DiscordBot()
+
+
+def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
+    """Send a Discord notification via bot or webhook depending on config."""
+    # Silenced after cluster shutdown message — suppress notifications while
+    # servers wind down or starting maps come online during a shutdown sequence
+    if CLUSTER.discord_silent:
+        return
+
+    use_bot = (_cfg.get("discord", "use_bot") if _cfg.has_option("discord", "use_bot") else "false").strip().lower() == "true"
+
+    if use_bot:
+        DISCORD_BOT.send(message, color, title)
+        return
+
+    # Webhook fallback — run in a daemon thread so it never blocks the main loop
+    url = (_cfg.get("discord", "webhook_url") if _cfg.has_option("discord", "webhook_url") else "").strip()
+    if not url:
+        return
+
+    def _post() -> None:
+        try:
+            embed: dict = {"description": message, "color": color}
+            if title:
+                embed["title"] = title
+            payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "ASA-Cluster-Controller"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5).close()
+        except Exception as exc:
+            log(f"Discord webhook failed: {exc}")
+
+    threading.Thread(target=_post, daemon=True).start()
 
 
 def load_whitelist() -> set:
@@ -705,6 +998,10 @@ def _patch_engine_ini() -> None:
 
 
 def start_server(key: str) -> bool:
+    # Never launch a server while a shutdown or cluster-stop is in progress
+    if CLUSTER.shutdown_scheduled or CLUSTER.cluster_stopped:
+        log(f"start_server({key}) blocked — cluster shutdown in progress")
+        return False
     state = SERVER_STATES[key]
     if state.is_running or state.is_starting:
         return False
@@ -714,9 +1011,14 @@ def start_server(key: str) -> bool:
         log(f"ArkAscendedServer.exe not found at: {exe}")
         return False
 
-    _patch_game_user_settings()
-    _patch_game_ini()
-    _patch_engine_ini()
+    try:
+        _patch_game_user_settings()
+        _patch_game_ini()
+        _patch_engine_ini()
+    except Exception as _patch_exc:
+        log(f"ERROR: Failed to patch server config files for {key}: {_patch_exc}")
+        log(f"       Server will not start — fix the path/permissions issue and retry.")
+        return False
 
     # Re-read config fresh so settings-page changes apply without a controller restart
     _lc = _read_live_cfg()
@@ -768,11 +1070,12 @@ def start_server(key: str) -> bool:
     # CREATE_BREAKAWAY_FROM_JOB (0x01000000) ensures the server process is
     # fully detached from the controller's job object so it keeps running
     # if the controller is restarted or killed.
-    subprocess.Popen(
+    proc = subprocess.Popen(
         [exe, map_arg] + flags,
         cwd=os.path.dirname(exe),
         creationflags=subprocess.CREATE_NEW_CONSOLE | 0x01000000,
     )
+    state.process_pid = proc.pid
     state.is_starting = True
     state.start_requested_at = time.time()
     state.pending_online_announcement = True
@@ -828,6 +1131,7 @@ def stop_server_safe(state: ServerState, reason: str) -> None:
     state.manual_stop_duration_seconds = 0
     state.pending_online_announcement = False
     state.seen_log_lines.clear()
+    state.process_pid = 0
     # Intentional stop — disarm crash auto-restart so it doesn't come back up
     state.crash_offline          = False
     state.last_crash_restart_at  = None
@@ -934,15 +1238,18 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
             return
         requested = normalize_map_name(start_match.group(1))
         if not requested:
+            announce(origin, f"Unknown map '{start_match.group(1)}'. Type !help for map names.")
             return
         state = SERVER_STATES[requested]
         if state.is_running or state.is_starting:
+            announce(origin, f"{state.cfg.display_name} is already online or starting.")
             return
         active = len(active_servers())
         if active >= MAX_ACTIVE_SERVERS:
             announce(origin, f"Max servers active ({active}/{MAX_ACTIVE_SERVERS})")
             return
         start_server(requested)
+        announce(origin, f"{state.cfg.display_name} is starting up — give it a few minutes.")
         return
 
     stop_match = re.match(r"!stop\s+(.+)", lowered)
@@ -1024,6 +1331,7 @@ def send_admin_help() -> None:
     log("  shutdown cluster")
     log("  shutdown cluster now")
     log("  shutdown cluster <time>   (e.g. 30m, 1h, 1h30m)")
+    log("  force shutdown cluster    (kills all immediately — dashboard shows a confirm dialog; direct console command is immediate with no confirmation)")
     log("  restart")
     log("  restart now")
     log("  restart <time>")
@@ -1108,7 +1416,107 @@ def cancel_manual_stop(target: ServerState) -> None:
     log(f"{target.cfg.key} shutdown cancelled")
 
 
+
+def perform_force_cluster_shutdown() -> None:
+    """Immediately kill every server process — no save, no DoExit, no waiting.
+    Use this when you need everything dead right now (e.g. stuck-starting maps).
+    Only available as an admin command, never triggered automatically."""
+    CLUSTER.shutdown_scheduled = True
+
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** is being **force-stopped** ⛔\nAll server processes will be killed immediately.",
+            _DC_GREY, "Cluster Force Shutdown")
+    CLUSTER.discord_silent = True
+
+    log("FORCE SHUTDOWN — killing all server processes immediately")
+    announce_all_online("EMERGENCY SHUTDOWN — killing all servers now")
+
+    for key, state in SERVER_STATES.items():
+        if state.process_pid:
+            log(f"Force-killing {key} (PID {state.process_pid})")
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(state.process_pid)],
+                capture_output=True,
+            )
+        # Reset ALL state flags regardless of whether we had a PID stored
+        state.process_pid = 0
+        state.is_starting = False
+        state.is_running = False
+        state.start_requested_at = None
+        state.pending_online_announcement = False
+        state.players.clear()
+        state.player_list = []
+        state.player_count = 0
+        state.crash_offline = False
+        state.last_crash_restart_at = None
+        state.crash_window_start = None
+        state.crash_restart_count = 0
+        # Clear any pending manual-stop countdown — otherwise handle_manual_stop_timers()
+        # would fire on the next Start Cluster and immediately stop the freshly started server.
+        state.manual_stop_since = None
+        state.manual_stop_last_announcement_remaining = None
+        state.manual_stop_duration_seconds = 0
+
+    # Catch any adopted servers (process_pid=0) or processes that survived
+    # the PID kill — wipe all ArkAscendedServer.exe processes still running.
+    log("Force-killing any remaining ArkAscendedServer.exe processes...")
+    subprocess.run(
+        ["taskkill", "/F", "/T", "/IM", "ArkAscendedServer.exe"],
+        capture_output=True,
+    )
+
+    CLUSTER.shutdown_scheduled = False
+    CLUSTER.shutdown_at = None
+    CLUSTER.last_announcement_remaining = None
+    CLUSTER.cluster_stopped = True
+    log("Force shutdown complete. Controller is idle — use Start Cluster to bring it back up.")
+
+
 def perform_cluster_shutdown() -> None:
+    # Lock out any new server starts immediately.  For instant shutdowns
+    # (delay_seconds=0) shutdown_scheduled was never set by the scheduler, so
+    # set it here so start_server() and ensure_default_server() both bail out.
+    CLUSTER.shutdown_scheduled = True
+
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** is shutting down ⛔\nAll servers will be stopped.",
+            _DC_GREY, "Cluster Shutdown")
+    # Silence all further Discord messages — a map that finishes starting up
+    # during the shutdown sequence should not post an "online" notification.
+    CLUSTER.discord_silent = True
+
+    # Wait for any servers that are mid-startup to come fully online so they
+    # can be stopped cleanly via RCON.  The main loop is blocked while we run,
+    # so actively poll each starting server ourselves.
+    starting_keys = [k for k, s in SERVER_STATES.items() if s.is_starting]
+    if starting_keys:
+        log(f"Shutdown waiting for server(s) to finish starting: {starting_keys}")
+        announce_all_online(
+            f"Shutdown pending — waiting for {', '.join(starting_keys)} to come online...")
+        deadline = time.time() + SERVER_START_TIMEOUT_SECONDS
+        while time.time() < deadline:
+            still_starting = [k for k in starting_keys if SERVER_STATES[k].is_starting]
+            if not still_starting:
+                log("All starting servers are now online — proceeding with shutdown.")
+                break
+            for k in still_starting:
+                state = SERVER_STATES[k]
+                update_running_status(state)
+                # If this server has individually exceeded its own startup timeout,
+                # stop waiting for it and let the force-kill block handle it.
+                if (state.is_starting and state.start_requested_at
+                        and time.time() - state.start_requested_at > SERVER_START_TIMEOUT_SECONDS):
+                    log(f"Startup timeout exceeded for {k} during shutdown wait — will force-kill.")
+                    state.is_starting = False
+                    state.start_requested_at = None
+            time.sleep(5)
+        else:
+            timed_out = [k for k in starting_keys if SERVER_STATES[k].is_starting]
+            if timed_out:
+                log(f"Startup wait timed out for: {timed_out} — proceeding with shutdown.")
+
     backup_world()
     log("Executing cluster shutdown")
     announce_all_online("Saving world...")
@@ -1116,7 +1524,7 @@ def perform_cluster_shutdown() -> None:
     for state in list(online_servers()):
         save_world(state)
 
-    time.sleep(10)
+    time.sleep(SAVE_BEFORE_EXIT_WAIT_SECONDS)
 
     announce_all_online("Cluster shutting down now")
 
@@ -1125,6 +1533,28 @@ def perform_cluster_shutdown() -> None:
 
     log(f"Waiting {POST_SHUTDOWN_WAIT_SECONDS}s for server processes to fully stop...")
     time.sleep(POST_SHUTDOWN_WAIT_SECONDS)
+
+    # Force-kill any server processes still alive after the wait — this covers
+    # maps that were starting up when shutdown was triggered and never came
+    # online (so DoExit was never sent to them).
+    for key, state in SERVER_STATES.items():
+        if state.process_pid:
+            log(f"Force-killing lingering server process PID {state.process_pid} for {key}")
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(state.process_pid)],
+                capture_output=True,
+            )
+            state.process_pid = 0
+        # Clear starting/running flags for ALL servers — a server that was mid-
+        # startup when shutdown triggered will have is_starting=True but never
+        # went through stop_server_safe(), so its state must be wiped here.
+        state.is_starting = False
+        state.is_running = False
+        state.start_requested_at = None
+        state.pending_online_announcement = False
+        state.players.clear()
+        state.player_list = []
+        state.player_count = 0
 
     # Clear crash tracking on ALL servers — including any that were already
     # offline/crashed before the shutdown was triggered.  Without this, a
@@ -1152,6 +1582,9 @@ def schedule_cluster_shutdown(delay_seconds: int = 0) -> None:
     CLUSTER.last_announcement_remaining = None
 
     if delay_seconds <= 0:
+        # Set the flag before announcing so start_server() guards fire immediately,
+        # even if the Discord bot races to call start_server() in its thread.
+        CLUSTER.shutdown_scheduled = True
         announce_all_online("Cluster shutting down now")
         perform_cluster_shutdown()
         return
@@ -1161,22 +1594,39 @@ def schedule_cluster_shutdown(delay_seconds: int = 0) -> None:
 
     total_minutes = max(1, int(delay_seconds // 60))
     announce_all_online(f"Cluster shutdown scheduled in {total_minutes} minutes")
+    # Mark this minute as already announced so handle_cluster_shutdown_timer()
+    # doesn't immediately fire a second identical message on the next poll.
+    CLUSTER.last_announcement_remaining = total_minutes
     log(f"Cluster shutdown scheduled in {total_minutes} minutes")
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** shutdown scheduled in **{total_minutes} minutes** ⏳",
+            _DC_GREY, "Cluster Shutdown Scheduled")
 
 
 def cancel_cluster_shutdown() -> None:
+    if not CLUSTER.shutdown_scheduled:
+        log("cancel shutdown: no shutdown is currently scheduled — nothing to cancel.")
+        return
     if CLUSTER.shutdown_scheduled:
         CLUSTER.shutdown_scheduled = False
         CLUSTER.shutdown_at = None
         CLUSTER.last_announcement_remaining = None
         CLUSTER.cluster_stopped = False
         CLUSTER.restart_pending = False
+        # Re-enable Discord in case perform_cluster_shutdown() had already set
+        # discord_silent before being interrupted (e.g. exception mid-shutdown)
+        CLUSTER.discord_silent = False
         announce_all_online("Cluster shutdown cancelled")
         log("Cluster shutdown cancelled")
 
 
 
 def perform_cluster_restart() -> None:
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** is restarting 🔄\nServers will be back shortly.",
+            _DC_BLUE, "Cluster Restart")
     backup_world()
     log("Executing cluster restart")
     announce_all_online("Server restarting. Saving world...")
@@ -1184,7 +1634,7 @@ def perform_cluster_restart() -> None:
     for state in list(online_servers()):
         save_world(state)
 
-    time.sleep(10)
+    time.sleep(SAVE_BEFORE_EXIT_WAIT_SECONDS)
 
     announce_all_online("Server restarting now. Be back in a moment!")
 
@@ -1201,6 +1651,7 @@ def perform_cluster_restart() -> None:
     CLUSTER.last_announcement_remaining = None
     CLUSTER.cluster_stopped = False
     CLUSTER.restart_pending = False
+    CLUSTER.discord_silent = False
 
     log("Restarting servers...")
     for key in maps_to_restore:
@@ -1221,7 +1672,12 @@ def schedule_cluster_restart(delay_seconds: int = 0) -> None:
 
     total_minutes = max(1, int(delay_seconds // 60))
     announce_all_online(f"Server restart scheduled in {total_minutes} minutes")
+    CLUSTER.last_announcement_remaining = total_minutes
     log(f"Server restart scheduled in {total_minutes} minutes")
+    if _dc_flag("notify_cluster_events"):
+        discord_notify(
+            f"**{CLUSTER_NAME}** restart scheduled in **{total_minutes} minutes** ⏳",
+            _DC_BLUE, "Cluster Restart Scheduled")
 
 
 def handle_admin_command(command: str) -> None:
@@ -1237,6 +1693,7 @@ def handle_admin_command(command: str) -> None:
         if any(s.is_running or s.is_starting for s in SERVER_STATES.values()):
             log("Cluster already has running servers.")
             return
+        CLUSTER.discord_silent = False
         CLUSTER.cluster_stopped = False
         start_server(DEFAULT_SERVER_KEY)
         return
@@ -1247,6 +1704,10 @@ def handle_admin_command(command: str) -> None:
 
     if lowered == "shutdown cluster now":
         schedule_cluster_shutdown(0)
+        return
+
+    if lowered == "force shutdown cluster":
+        perform_force_cluster_shutdown()
         return
 
     shutdown_match = re.fullmatch(r"shutdown cluster\s+(.+)", lowered)
@@ -1551,10 +2012,16 @@ def update_running_status(state: ServerState) -> None:
         # are already in-game. ListPlayers is too unreliable in ASA for this.
         if just_came_online:
             sync_players_from_game_log(state)
+            # sync_players_from_game_log overwrites player_count (via the log)
+            # but not player_list (from ListPlayers). Re-align player_count so
+            # the dashboard card and the player list always agree.
+            state.player_count = len(state.player_list)
 
         if just_came_online and state.pending_online_announcement:
             announce_all_online(f"{state.cfg.display_name} is up and running")
             state.pending_online_announcement = False
+            if _dc_flag("notify_server_events"):
+                discord_notify(f"**{state.cfg.display_name}** is now online 🟢", _DC_GREEN)
 
         if state.last_autosave_at == 0:
             state.last_autosave_at = now
@@ -1562,7 +2029,12 @@ def update_running_status(state: ServerState) -> None:
         if state.is_running:
             # Never run crash detection during an intentional cluster shutdown
             # or when the cluster has been stopped — avoid spurious restarts.
+            # Still clear is_running so the dashboard doesn't show stale ONLINE
+            # status and perform_cluster_shutdown() stops sending RCON to dead servers.
             if CLUSTER.cluster_stopped or CLUSTER.shutdown_scheduled:
+                state.is_running = False
+                state.players.clear()
+                state.player_count = 0
                 return
 
             # Brief settling grace after coming online — lets RCON stabilise
@@ -1581,6 +2053,7 @@ def update_running_status(state: ServerState) -> None:
             log(f"CRASH DETECTED: {state.cfg.key} ({state.rcon_fail_count} consecutive RCON failures)")
             state.is_running = False
             state.is_starting = False
+            state.process_pid = 0    # clear stale PID — process is gone
             state.players.clear()
             state.player_count = 0
             state.last_player_seen_at = None
@@ -1602,6 +2075,10 @@ def update_running_status(state: ServerState) -> None:
             if not _auto:
                 log(f"AUTO-RESTART DISABLED: {state.cfg.key} will stay offline")
                 announce_all_online(f"{state.cfg.display_name} has crashed (auto-restart is disabled)")
+                if _dc_flag("notify_crash_events"):
+                    discord_notify(
+                        f"**{state.cfg.display_name}** has crashed 🔴\nAuto-restart is disabled — manual action required.",
+                        _DC_RED, "Server Crash")
                 return
 
             # Reset crash window counter if the window has expired
@@ -1620,6 +2097,11 @@ def update_running_status(state: ServerState) -> None:
                     f"{int(_window // 60)} min — staying offline")
                 announce_all_online(
                     f"{state.cfg.display_name} has crashed too many times and will stay offline")
+                if _dc_flag("notify_crash_events"):
+                    discord_notify(
+                        f"**{state.cfg.display_name}** has crashed {state.crash_restart_count}x in "
+                        f"{int(_window // 60)} minutes ⛔\nMax restart limit reached — staying offline. Manual intervention needed.",
+                        _DC_RED, "Crash Limit Reached")
                 return
 
             # Enforce cooldown between crash-restarts
@@ -1628,6 +2110,11 @@ def update_running_status(state: ServerState) -> None:
                 log(f"CRASH COOLDOWN: {state.cfg.key} — waiting {remaining}s before restart")
                 announce_all_online(
                     f"{state.cfg.display_name} has crashed — restarting in {remaining // 60 + 1} min")
+                if _dc_flag("notify_crash_events"):
+                    discord_notify(
+                        f"**{state.cfg.display_name}** has crashed 🔴\n"
+                        f"Restarting in {remaining // 60 + 1} minute(s) (cooldown).",
+                        _DC_ORANGE, "Server Crash")
                 # Mark as crash-offline so the cooldown retry block can pick
                 # it up later — but only if manually stopped will this clear.
                 state.crash_offline = True
@@ -1641,6 +2128,11 @@ def update_running_status(state: ServerState) -> None:
             announce_all_online(
                 f"{state.cfg.display_name} has crashed and is being restarted "
                 f"({state.crash_restart_count}/{_maxr})")
+            if _dc_flag("notify_crash_events"):
+                discord_notify(
+                    f"**{state.cfg.display_name}** has crashed and is being restarted 🔄 "
+                    f"({state.crash_restart_count}/{_maxr})",
+                    _DC_ORANGE, "Server Crash — Auto Restart")
             start_server(state.cfg.key)
             return
 
@@ -1662,6 +2154,10 @@ def update_running_status(state: ServerState) -> None:
             state.empty_since = None
             state.manual_stop_since = None
             state.manual_stop_last_announcement_remaining = None
+            # Keep all three manual-stop fields together — duration was previously
+            # outside this block and zeroed even when is_starting=True, which caused
+            # handle_manual_stop_timers() to fall back to MAP_SHUTDOWN_DELAY_SECONDS.
+            state.manual_stop_duration_seconds = 0
 
             # ── Crash cooldown retry ──────────────────────────────────────
             # Only retry if the server went offline due to a crash.
@@ -1673,7 +2169,8 @@ def update_running_status(state: ServerState) -> None:
             if (state.crash_offline and state.last_crash_restart_at is not None
                     and not CLUSTER.cluster_stopped
                     and not CLUSTER.shutdown_scheduled):
-                _lr2    = lambda s, k, d: (_cfg.get(s, k) if _cfg.has_option(s, k) else d)
+                _lc2    = _read_live_cfg()
+                _lr2    = lambda s, k, d: (_lc2.get(s, k) if _lc2.has_option(s, k) else d)
                 _auto2  = _lr2("crash", "auto_restart_on_crash", "true").lower() == "true"
                 _cool2  = int(_lr2("crash", "crash_cooldown_minutes", "5")) * 60
                 _maxr2  = int(_lr2("crash", "max_crash_restarts",     "3"))
@@ -1690,11 +2187,18 @@ def update_running_status(state: ServerState) -> None:
                     state.last_crash_restart_at  = now
                     if state.crash_window_start is None:
                         state.crash_window_start = now
+                    # Clear crash_offline BEFORE starting so the next poll cycle
+                    # doesn't re-enter this block and attempt a duplicate start.
+                    state.crash_offline = False
                     announce_all_online(
                         f"{state.cfg.display_name} is being restarted after crash cooldown "
                         f"({state.crash_restart_count}/{_maxr2})")
+                    if _dc_flag("notify_crash_events"):
+                        discord_notify(
+                            f"**{state.cfg.display_name}** is being restarted after crash cooldown 🔄 "
+                            f"({state.crash_restart_count}/{_maxr2})",
+                            _DC_ORANGE, "Server Crash — Cooldown Retry")
                     start_server(state.cfg.key)
-            state.manual_stop_duration_seconds = 0
 
 
 def poll_chat(state: ServerState) -> None:
@@ -2299,6 +2803,7 @@ def main() -> int:
 
     _load_seen_players()
     log("Controller started")
+    DISCORD_BOT.start()
     adopt_running_servers()
     restore_maps_after_restart()
 
