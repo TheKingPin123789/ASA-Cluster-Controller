@@ -1988,6 +1988,10 @@ def update_running_status(state: ServerState) -> None:
         # are already in-game. ListPlayers is too unreliable in ASA for this.
         if just_came_online:
             sync_players_from_game_log(state)
+            # sync_players_from_game_log overwrites player_count (via the log)
+            # but not player_list (from ListPlayers). Re-align player_count so
+            # the dashboard card and the player list always agree.
+            state.player_count = len(state.player_list)
 
         if just_came_online and state.pending_online_announcement:
             announce_all_online(f"{state.cfg.display_name} is up and running")
@@ -2126,6 +2130,10 @@ def update_running_status(state: ServerState) -> None:
             state.empty_since = None
             state.manual_stop_since = None
             state.manual_stop_last_announcement_remaining = None
+            # Keep all three manual-stop fields together — duration was previously
+            # outside this block and zeroed even when is_starting=True, which caused
+            # handle_manual_stop_timers() to fall back to MAP_SHUTDOWN_DELAY_SECONDS.
+            state.manual_stop_duration_seconds = 0
 
             # ── Crash cooldown retry ──────────────────────────────────────
             # Only retry if the server went offline due to a crash.
@@ -2137,7 +2145,8 @@ def update_running_status(state: ServerState) -> None:
             if (state.crash_offline and state.last_crash_restart_at is not None
                     and not CLUSTER.cluster_stopped
                     and not CLUSTER.shutdown_scheduled):
-                _lr2    = lambda s, k, d: (_cfg.get(s, k) if _cfg.has_option(s, k) else d)
+                _lc2    = _read_live_cfg()
+                _lr2    = lambda s, k, d: (_lc2.get(s, k) if _lc2.has_option(s, k) else d)
                 _auto2  = _lr2("crash", "auto_restart_on_crash", "true").lower() == "true"
                 _cool2  = int(_lr2("crash", "crash_cooldown_minutes", "5")) * 60
                 _maxr2  = int(_lr2("crash", "max_crash_restarts",     "3"))
@@ -2166,7 +2175,6 @@ def update_running_status(state: ServerState) -> None:
                             f"({state.crash_restart_count}/{_maxr2})",
                             _DC_ORANGE, "Server Crash — Cooldown Retry")
                     start_server(state.cfg.key)
-            state.manual_stop_duration_seconds = 0
 
 
 def poll_chat(state: ServerState) -> None:

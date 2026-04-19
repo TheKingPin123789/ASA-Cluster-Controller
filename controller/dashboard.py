@@ -745,7 +745,7 @@ let _playerModalCache  = {};   // id -> {name,id,map,mapKey,isOnline,last_seen}
 async function loadWlPanel() {
   try {
     const r = await apiFetch('/api/whitelist');
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderWlPanel(data.entries || []);
   } catch(e) {}
@@ -790,7 +790,7 @@ function toggleApPanel() {
 async function loadApPanel() {
   try {
     const r = await apiFetch('/api/seen_players');
-    if (!r.ok) return;
+    if (!r || !r.ok) return;
     const data = await r.json();
     renderApPanel(data.players || {});
   } catch(e) {}
@@ -1855,7 +1855,10 @@ async function save() {
     if (i.type === 'checkbox') {
       payload[s][k] = i.checked ? 'true' : 'false';
     } else {
-      payload[s][k] = i.type === 'password' ? i.value : (i.value || i.placeholder);
+      // Use !== '' so a user can intentionally clear a field (e.g. mod_ids,
+      // active_event, restart_time). Only fall back to placeholder when the
+      // field is completely untouched (empty because we never set i.value).
+      payload[s][k] = i.type === 'password' ? i.value : (i.value !== '' ? i.value : i.placeholder);
     }
   });
   const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };
