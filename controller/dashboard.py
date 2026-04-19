@@ -173,7 +173,7 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .btn-orange { background: #78350f; color: #fdba74; }
 .btn-blue   { background: #1e3a5f; color: #93c5fd; }
 .btn-gray   { background: #374151; color: #9ca3af; }
-.btn-bright-green  { background: #22c55e; color: #ffffff; }
+.btn-bright-green  { background: #22c55e; color: #052e16; }
 .btn-bright-red    { background: #dc2626; color: #ffffff; }
 .btn-bright-orange { background: #ea580c; color: #ffffff; }
 /* Disabled bright buttons switch to gray so colour alone signals availability */
