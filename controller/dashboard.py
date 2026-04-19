@@ -143,7 +143,6 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 6px; padding: 9px 11px; min-width: 130px; flex: 0 1 150px; max-width: 155px; transition: border-color .2s; }
 .card.online   { border-color: #16a34a; }
 .card.starting { border-color: #d97706; }
-.card.offline  { opacity: .55; }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .card-name { font-weight: 600; font-size: 14px; }
 .badge { padding: 2px 6px; border-radius: 3px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
