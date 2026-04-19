@@ -171,7 +171,7 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 .btn-orange { background: #78350f; color: #fdba74; }
 .btn-blue   { background: #1e3a5f; color: #93c5fd; }
 .btn-gray   { background: #374151; color: #9ca3af; }
-.btn-bright-green  { background: #16a34a; color: #ffffff; }
+.btn-bright-green  { background: #22c55e; color: #ffffff; }
 .btn-bright-red    { background: #dc2626; color: #ffffff; }
 .btn-bright-orange { background: #ea580c; color: #ffffff; }
 .btn-full { width: 100%; }
@@ -298,7 +298,7 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
     <!-- Controls tab -->
     <div id="tab-controls" class="tab-panel active">
-      <button id="btn-start-cluster" class="btn btn-green btn-full" onclick="cmd('start cluster')">Start Cluster</button>
+      <button id="btn-start-cluster" class="btn btn-bright-green btn-full" onclick="cmd('start cluster')">Start Cluster</button>
 
       <div class="sec">
         <div class="sec-title">Cluster Actions</div>
@@ -940,7 +940,7 @@ function renderCards(data) {
   const anyActive = Object.values(data.servers).some(s => s.is_running || s.is_starting);
   const startBtn = document.getElementById('btn-start-cluster');
   startBtn.disabled = anyActive;
-  startBtn.className = 'btn btn-full ' + (anyActive ? 'btn-gray' : 'btn-green');
+  startBtn.className = 'btn btn-full ' + (anyActive ? 'btn-gray' : 'btn-bright-green');
 
   const runCount = Object.values(data.servers).filter(s => s.is_running).length;
   document.getElementById('status-line').textContent =
