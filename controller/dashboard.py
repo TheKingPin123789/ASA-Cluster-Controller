@@ -84,8 +84,10 @@ def _check_credentials(username: str, password: str) -> bool:
 
 
 def _auth_enabled() -> bool:
-    """Auth is enabled whenever a username is configured (always true by design)."""
-    return True
+    """Auth is enabled only when a password hash is present in config.
+    If the wizard was run without setting credentials, the dashboard opens freely."""
+    cfg = _get_auth_cfg()
+    return bool(cfg.get("auth", "password_hash", fallback="").strip())
 
 
 def _safe_next(url: str) -> str:
@@ -98,10 +100,11 @@ def _safe_next(url: str) -> str:
 
 
 def login_required(f):
-    """Decorator — redirects to /login for page routes, returns 401 for API routes."""
+    """Decorator — bypassed entirely when no password is configured.
+    When auth is enabled: redirects to /login for page routes, returns 401 for API routes."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("logged_in"):
+        if _auth_enabled() and not session.get("logged_in"):
             if request.path.startswith("/api/"):
                 return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for("login_page", next=request.path))
@@ -2057,34 +2060,21 @@ if __name__ == "__main__":
     app.secret_key = _ensure_secret_key()
     app.permanent_session_lifetime = datetime.timedelta(hours=24)
 
-    # Ensure default credentials exist in config if auth section is missing
+    # Report auth state — credentials are set by the setup wizard or Settings page.
+    # Never auto-create default credentials here; if no password_hash is present,
+    # the dashboard opens without a login page (user opted out during wizard).
     _auth_cfg = configparser.RawConfigParser()
     try:
         _auth_cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
-    _is_first_run = not _auth_cfg.has_section("auth")
-    if not _auth_cfg.has_section("auth"):
-        _auth_cfg.add_section("auth")
-    if not _auth_cfg.has_option("auth", "username"):
-        _auth_cfg.set("auth", "username", "admin")
-    if not _auth_cfg.has_option("auth", "password_hash"):
-        if _is_first_run:
-            # Genuine first run — write the default credentials.
-            _auth_cfg.set("auth", "password_hash", _hash_password("admin"))
-            print("First run: default login is admin / admin — change it via Settings.")
-        else:
-            # Auth section exists but hash is gone (config corruption).
-            # Do NOT silently reset to 'admin' — that would let anyone log in.
-            # User must run reset_password.bat to restore access.
-            print("WARNING: password_hash is missing from config.ini.")
-            print("         Login is disabled until credentials are restored.")
-            print("         Run reset_password.bat to set a new password.")
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as _f:
-            _auth_cfg.write(_f)
-    except Exception:
-        pass
+    _has_hash = bool(_auth_cfg.get("auth", "password_hash", fallback="").strip()
+                     if _auth_cfg.has_section("auth") else "")
+    if _has_hash:
+        _stored_user = _auth_cfg.get("auth", "username", fallback="admin")
+        print(f"Dashboard login enabled — username: {_stored_user}")
+    else:
+        print("Dashboard login disabled — set a password in Settings to enable it.")
 
     port = _get_web_port()
     try:

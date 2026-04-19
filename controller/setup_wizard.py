@@ -7,6 +7,8 @@ import io
 import os
 import re
 import time
+import hashlib
+import getpass
 import subprocess
 import urllib.request
 import zipfile
@@ -92,6 +94,25 @@ def _ask_yes_no(prompt: str, default: bool = True) -> bool:
         if raw in ("n", "no"):
             return False
         print("  Please answer y or n.")
+
+
+def _ask_optional(prompt: str, hint: str = "skip") -> str:
+    """Ask a question where pressing Enter returns an empty string (field is optional)."""
+    return input(f"{prompt} [{hint}]: ").strip()
+
+
+def _ask_password_optional() -> str:
+    """Ask for a password without echoing it to the screen. Enter skips."""
+    try:
+        pw = getpass.getpass("  Password [skip]: ").strip()
+    except Exception:
+        # Fallback if getpass isn't available (e.g. redirected stdin)
+        pw = input("  Password [skip]: ").strip()
+    return pw
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def _download_steamcmd(steamcmd_exe: str) -> bool:
@@ -365,6 +386,56 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     baby_imprint_amount  = _ask_float("Baby imprint amount multiplier",      _rec_imprint)
     print()
 
+    # ── Dashboard login ───────────────────────────────────
+    print("[ Dashboard login ]")
+    print()
+    print("  Set a username and password to protect the web dashboard.")
+    print("  Press Enter for both to skip — the dashboard will open without a login page.")
+    print("  You can always set or change credentials later in the Settings page.")
+    print()
+
+    _prev_user = prev_get("auth", "username", "")
+    _has_existing_auth = bool(prev_get("auth", "password_hash", ""))
+
+    if _has_existing_auth:
+        print(f"  Existing credentials found (username: {_prev_user}).")
+        _keep_auth = _ask_yes_no("  Keep existing credentials?", default=True)
+        if _keep_auth:
+            dash_username = _prev_user
+            dash_password_hash = prev_get("auth", "password_hash", "")
+        else:
+            dash_username = _ask_optional("  Username", hint=_prev_user or "skip")
+            if dash_username:
+                dash_password_hash = None  # will prompt below
+            else:
+                dash_password_hash = ""    # clearing auth
+    else:
+        dash_username = _ask_optional("  Username", hint="skip")
+        dash_password_hash = None  # will prompt below if username set
+
+    if dash_username and dash_password_hash is None:
+        # Need to collect a password
+        while True:
+            pw1 = _ask_password_optional()
+            if not pw1:
+                print("  No password entered — login will be disabled.")
+                dash_username = ""
+                dash_password_hash = ""
+                break
+            pw2 = _ask_password_optional()
+            if pw1 == pw2:
+                dash_password_hash = _hash_password(pw1)
+                break
+            print("  Passwords do not match — please try again.")
+    elif not dash_username:
+        dash_password_hash = ""
+
+    if dash_username and dash_password_hash:
+        print(f"  → Dashboard login enabled (username: {dash_username})")
+    else:
+        print("  → Dashboard login disabled — no login page will be shown.")
+    print()
+
     # ── Confirm & write ───────────────────────────────────
     print("[ Summary ]")
     print()
@@ -394,6 +465,10 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     print(f"  Cuddle interval   : {baby_cuddle_interval}")
     print(f"  Cuddle grace      : {baby_cuddle_grace}")
     print(f"  Imprint amount    : {baby_imprint_amount}")
+    if dash_username and dash_password_hash:
+        print(f"  Dashboard login   : enabled (username: {dash_username})")
+    else:
+        print( "  Dashboard login   : disabled (no login page)")
     print()
 
     if not _ask_yes_no("Save this configuration?", default=True):
@@ -519,6 +594,18 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "crossplay": prev_get("mods","crossplay","false"),
         "mod_ids":   prev_get("mods","mod_ids",  ""),
     }
+
+    # Only write [auth] if credentials were provided — no section means auth disabled
+    if dash_username and dash_password_hash:
+        cfg["auth"] = {
+            "username":      dash_username,
+            "password_hash": dash_password_hash,
+            # Preserve the existing secret_key so active browser sessions survive a
+            # wizard re-run. The dashboard generates it on first start if missing.
+            "secret_key":    prev_get("auth", "secret_key", ""),
+        }
+    # If auth was cleared (user chose to disable), omit the section entirely so
+    # the dashboard opens without a login page.
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with CONFIG_PATH.open("w", encoding="utf-8") as f:
