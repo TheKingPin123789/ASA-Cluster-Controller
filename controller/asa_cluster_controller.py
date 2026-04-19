@@ -348,7 +348,8 @@ _DC_GREY   = 10070709  # cluster shutdown
 
 def _dc_flag(key: str, default: str = "true") -> bool:
     """Read a discord toggle from config (re-read each call for live changes)."""
-    return (_cfg.get("discord", key) if _cfg.has_option("discord", key) else default).lower() == "true"
+    c = _read_live_cfg()
+    return (c.get("discord", key) if c.has_option("discord", key) else default).lower() == "true"
 
 
 class DiscordBot:
@@ -1430,6 +1431,11 @@ def perform_force_cluster_shutdown() -> None:
         state.last_crash_restart_at = None
         state.crash_window_start = None
         state.crash_restart_count = 0
+        # Clear any pending manual-stop countdown — otherwise handle_manual_stop_timers()
+        # would fire on the next Start Cluster and immediately stop the freshly started server.
+        state.manual_stop_since = None
+        state.manual_stop_last_announcement_remaining = None
+        state.manual_stop_duration_seconds = 0
 
     # Catch any adopted servers (process_pid=0) or processes that survived
     # the PID kill — wipe all ArkAscendedServer.exe processes still running.
@@ -1555,6 +1561,9 @@ def schedule_cluster_shutdown(delay_seconds: int = 0) -> None:
     CLUSTER.last_announcement_remaining = None
 
     if delay_seconds <= 0:
+        # Set the flag before announcing so start_server() guards fire immediately,
+        # even if the Discord bot races to call start_server() in its thread.
+        CLUSTER.shutdown_scheduled = True
         announce_all_online("Cluster shutting down now")
         perform_cluster_shutdown()
         return
@@ -1992,7 +2001,12 @@ def update_running_status(state: ServerState) -> None:
         if state.is_running:
             # Never run crash detection during an intentional cluster shutdown
             # or when the cluster has been stopped — avoid spurious restarts.
+            # Still clear is_running so the dashboard doesn't show stale ONLINE
+            # status and perform_cluster_shutdown() stops sending RCON to dead servers.
             if CLUSTER.cluster_stopped or CLUSTER.shutdown_scheduled:
+                state.is_running = False
+                state.players.clear()
+                state.player_count = 0
                 return
 
             # Brief settling grace after coming online — lets RCON stabilise
@@ -2140,6 +2154,9 @@ def update_running_status(state: ServerState) -> None:
                     state.last_crash_restart_at  = now
                     if state.crash_window_start is None:
                         state.crash_window_start = now
+                    # Clear crash_offline BEFORE starting so the next poll cycle
+                    # doesn't re-enter this block and attempt a duplicate start.
+                    state.crash_offline = False
                     announce_all_online(
                         f"{state.cfg.display_name} is being restarted after crash cooldown "
                         f"({state.crash_restart_count}/{_maxr2})")

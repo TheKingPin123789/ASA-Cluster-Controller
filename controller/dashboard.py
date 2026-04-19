@@ -75,9 +75,11 @@ def _check_credentials(username: str, password: str) -> bool:
     cfg = _get_auth_cfg()
     stored_user = cfg.get("auth", "username", fallback="admin").strip()
     stored_hash = cfg.get("auth", "password_hash", fallback="").strip()
-    # Fallback: if no hash stored yet, accept default password 'admin' and migrate
     if not stored_hash:
-        return username == stored_user and password == "admin"
+        # No hash stored — refuse login rather than silently accepting a default.
+        # This protects against config corruption resetting access to 'admin'.
+        # Run reset_password.bat (or restart the dashboard fresh) to restore defaults.
+        return False
     return username == stored_user and _hash_password(password) == stored_hash
 
 
@@ -580,7 +582,9 @@ async function addWlPlayer() {
   if (!id) return;
   cmd('whitelist add ' + id);
   inp.value = '';
-  setTimeout(loadWlPanel, 600);
+  // Wait slightly longer than the controller's poll interval so the command
+  // is processed before we re-fetch the whitelist (avoids showing stale data).
+  setTimeout(loadWlPanel, 6000);
 }
 
 async function loadAdminPanel() {
@@ -770,7 +774,7 @@ function renderWlPanel(entries) {
 
 function wlRemove(id) {
   cmd('whitelist remove ' + id);
-  setTimeout(loadWlPanel, 600);
+  setTimeout(loadWlPanel, 6000);
 }
 
 // ── All Players panel ─────────────────────────────────────────────────────────
@@ -899,9 +903,9 @@ function renderPmWl(id, onWl) {
   const safeId = escHtml(id);
   document.getElementById('pm-actions').innerHTML = `
     <button class="btn btn-green btn-sm" ${onWl  ? 'disabled' : ''}
-            onclick="cmd('whitelist add ${safeId}'); renderPmWl('${safeId}', true); setTimeout(loadWlPanel,600)">+WL Add</button>
+            onclick="cmd('whitelist add ${safeId}'); renderPmWl('${safeId}', true); setTimeout(loadWlPanel,6000)">+WL Add</button>
     <button class="btn btn-red btn-sm"   ${!onWl ? 'disabled' : ''}
-            onclick="cmd('whitelist remove ${safeId}'); renderPmWl('${safeId}', false); setTimeout(loadWlPanel,600)">−WL Remove</button>
+            onclick="cmd('whitelist remove ${safeId}'); renderPmWl('${safeId}', false); setTimeout(loadWlPanel,6000)">−WL Remove</button>
   `;
 }
 
@@ -1923,10 +1927,16 @@ def restart_dashboard():
     except Exception as exc:
         return jsonify({"error": f"Could not restart dashboard: {exc}"}), 500
 
-    # Give the response a moment to reach the browser before we exit
+    # Give the response a moment to reach the browser before we exit.
+    # Remove the PID file here rather than relying on the finally block —
+    # on Windows, SIGTERM triggers os._exit() which bypasses finally.
     def _delayed_exit():
         import time as _t
         _t.sleep(1)
+        try:
+            os.remove(DASHBOARD_PID_FILE)
+        except FileNotFoundError:
+            pass
         os.kill(os.getpid(), signal.SIGTERM)
 
     import threading
@@ -2039,12 +2049,23 @@ if __name__ == "__main__":
         _auth_cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
+    _is_first_run = not _auth_cfg.has_section("auth")
     if not _auth_cfg.has_section("auth"):
         _auth_cfg.add_section("auth")
     if not _auth_cfg.has_option("auth", "username"):
         _auth_cfg.set("auth", "username", "admin")
     if not _auth_cfg.has_option("auth", "password_hash"):
-        _auth_cfg.set("auth", "password_hash", _hash_password("admin"))
+        if _is_first_run:
+            # Genuine first run — write the default credentials.
+            _auth_cfg.set("auth", "password_hash", _hash_password("admin"))
+            print("First run: default login is admin / admin — change it via Settings.")
+        else:
+            # Auth section exists but hash is gone (config corruption).
+            # Do NOT silently reset to 'admin' — that would let anyone log in.
+            # User must run reset_password.bat to restore access.
+            print("WARNING: password_hash is missing from config.ini.")
+            print("         Login is disabled until credentials are restored.")
+            print("         Run reset_password.bat to set a new password.")
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as _f:
             _auth_cfg.write(_f)
