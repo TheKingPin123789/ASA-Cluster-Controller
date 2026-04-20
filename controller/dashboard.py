@@ -1137,11 +1137,32 @@ async function apiFetch(url, opts) {
 }
 
 // ── Connection-lost indicator ─────────────────────────────────────────────────
+// The dashboard and controller are separate processes. The dashboard keeps
+// serving the last cluster_status.json even after the controller closes, so
+// HTTP polls keep succeeding with stale data. We detect this by comparing
+// the timestamp embedded in the JSON against the current time.
+const _STALE_THRESHOLD_SECONDS = 20; // controller writes every ~5s normally
+let _controllerLost = false;
+
+function _checkStaleness(data) {
+  if (!data.timestamp) return;
+  const ageSeconds = Date.now() / 1000 - data.timestamp;
+  const isStale = ageSeconds > _STALE_THRESHOLD_SECONDS;
+  if (isStale && !_controllerLost) {
+    _controllerLost = true;
+    const sl = document.getElementById('status-line');
+    sl.textContent = '⚠ Controller offline — data is stale';
+    sl.style.color = '#f87171';
+  } else if (!isStale && _controllerLost) {
+    _controllerLost = false;
+    document.getElementById('status-line').style.color = '';
+  }
+}
+
 let _pollFailures = 0;
 const _MAX_POLL_FAILURES = 3;
 function _markPollOk() {
   if (_pollFailures >= _MAX_POLL_FAILURES) {
-    // Restore the status line — renderCards will overwrite it next tick
     document.getElementById('status-line').style.color = '';
   }
   _pollFailures = 0;
@@ -1150,7 +1171,7 @@ function _markPollFail() {
   _pollFailures++;
   if (_pollFailures >= _MAX_POLL_FAILURES) {
     const sl = document.getElementById('status-line');
-    sl.textContent = '⚠ Connection lost — retrying…';
+    sl.textContent = '⚠ Dashboard unreachable — retrying…';
     sl.style.color = '#f87171';
   }
 }
@@ -1163,6 +1184,8 @@ async function pollStatus() {
     const data = await r.json();
     if (data.error) { _markPollFail(); return; }
     _markPollOk();
+    _checkStaleness(data);
+    if (_controllerLost) return; // don't overwrite the warning with stale card data
     renderCards(data);
     renderPlayerList(data);
     setTimerFromStatus(data);
