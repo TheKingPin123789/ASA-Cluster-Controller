@@ -283,6 +283,16 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 /* Uptime badge on cards */
 .card-uptime { font-size:11px; color:#4b5563; margin-top:1px; min-height:13px; }
 
+/* RAM warning banner */
+#ram-warning-banner { display:none; margin:4px 12px 0; padding:9px 14px; background:#2d1a00; border:1px solid #92400e; border-radius:6px; color:#fbbf24; font-size:13px; line-height:1.5; }
+
+/* Toast notifications */
+#toast-container { position:fixed; bottom:16px; right:16px; display:flex; flex-direction:column-reverse; gap:6px; z-index:3000; pointer-events:none; }
+.toast { background:#1a1f36; border:1px solid #3b4a7a; border-radius:6px; padding:8px 14px; font-size:13px; color:#dde1e7; max-width:280px; animation:toastIn .15s ease; }
+.toast.join  { border-color:#16a34a; color:#4ade80; }
+.toast.leave { border-color:#4b5563; color:#9ca3af; }
+@keyframes toastIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+
 /* Settings window */
 .settings-section { margin-top: 10px; }
 .settings-section .sec-title { margin-bottom: 6px; padding-bottom:3px; border-bottom:1px solid #2a3050; }
@@ -328,6 +338,7 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
       <span id="status-line">Connecting...</span>
       <span id="restart-timer" style="font-size:14px; font-family:Consolas,monospace;"></span>
+      <span id="update-age" style="font-size:11px; color:#4b5563;"></span>
     </div>
     <button onclick="openSettings()" title="Settings"
             style="background:none; border:none; cursor:pointer; font-size:20px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px;"
@@ -339,6 +350,8 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 </div>
 
 <div id="cards"><!-- injected by JS --></div>
+
+<div id="ram-warning-banner"></div>
 
 <div id="cluster-offline-banner" style="display:none; margin:10px 12px 0; padding:12px 16px; background:#131825; border:1px solid #2a3050; border-radius:6px; color:#9ca3af; font-size:13px; line-height:1.6;">
   <span style="font-size:15px; font-weight:600; color:#e2e8f0;">Cluster is offline</span><br>
@@ -433,7 +446,10 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
       <!-- Whitelisted players -->
       <div class="sec">
-        <div class="sec-title">Whitelisted Players</div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <div class="sec-title" style="margin-bottom:0;">Whitelisted Players</div>
+          <button class="btn btn-blue btn-sm" onclick="whitelistAllOnline()" title="Add all currently online players to whitelist">+ All Online</button>
+        </div>
         <div style="display:flex; gap:5px; margin-bottom:6px;">
           <input type="text" id="wl-add-input" placeholder="Steam ID to add..." style="flex:1;">
           <button class="btn btn-green btn-sm" onclick="addWlPlayer()">Add</button>
@@ -496,6 +512,8 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
   </div>
 </div>
 
+<div id="toast-container"></div>
+
 <!-- Card action (Stop / Restart) confirmation modal -->
 <div id="card-confirm-modal" onclick="if(event.target===this)closeCcm()">
   <div id="card-confirm-box">
@@ -537,7 +555,7 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
       <span id="pm-status-dot" class="ap-dot"></span>
       <div class="pm-title" id="pm-name"></div>
     </div>
-    <div class="pm-row"><div class="pm-label">Steam ID</div><div class="pm-value mono" id="pm-id"></div></div>
+    <div class="pm-row"><div class="pm-label">Steam ID</div><div style="display:flex;align-items:center;gap:6px;"><div class="pm-value mono" id="pm-id"></div><button class="btn btn-gray btn-sm" id="pm-copy-btn" onclick="copyPmId()" title="Copy Steam ID">⎘</button></div></div>
     <div class="pm-row"><div class="pm-label">Map</div><div class="pm-value" id="pm-map"></div></div>
     <div class="pm-row"><div class="pm-label">Last Seen</div><div class="pm-value" id="pm-last-seen"></div></div>
     <div class="pm-row"><div class="pm-label">Whitelist</div><div class="pm-value" id="pm-wl"></div></div>
@@ -560,6 +578,95 @@ let lastAdminLine        = '';
 let timerTarget          = null;   // unix seconds
 let timerLabel           = '';
 let timerColor           = '#6b7280';
+
+// ── Toast notifications ───────────────────────────────────────────────────────
+let _prevPlayers   = {};   // steamId -> {name, map}
+let _initialPoll   = true; // suppress toasts on first load
+
+function _showToast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  const container = document.getElementById('toast-container');
+  container.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 4000);
+  setTimeout(() => el.remove(), 4400);
+}
+
+function _checkPlayerChanges(data) {
+  if (!data || !data.servers) return;
+  const current = {};
+  for (const [, s] of Object.entries(data.servers)) {
+    for (const p of (s.player_list || [])) {
+      if (p.id) current[p.id] = { name: p.name || p.id, map: s.display_name };
+    }
+  }
+  if (!_initialPoll) {
+    for (const [id, info] of Object.entries(current)) {
+      if (!_prevPlayers[id]) _showToast(`${info.name} joined ${info.map}`, 'join');
+    }
+    for (const [id, info] of Object.entries(_prevPlayers)) {
+      if (!current[id]) _showToast(`${info.name} left ${info.map}`, 'leave');
+    }
+  }
+  _prevPlayers  = current;
+  _initialPoll  = false;
+}
+
+// ── Last-updated indicator ────────────────────────────────────────────────────
+let _lastPollTime = 0;
+setInterval(() => {
+  const el = document.getElementById('update-age');
+  if (!el || !_lastPollTime) return;
+  const s = Math.floor((Date.now() - _lastPollTime) / 1000);
+  el.textContent = 'Updated ' + s + 's ago';
+}, 1000);
+
+// ── Command debounce ──────────────────────────────────────────────────────────
+let _lastCmdStr  = '';
+let _lastCmdTime = 0;
+const _CMD_DEBOUNCE_MS = 3000;
+
+// ── Copy Steam ID ─────────────────────────────────────────────────────────────
+function copyPmId() {
+  const id  = document.getElementById('pm-id').textContent;
+  const btn = document.getElementById('pm-copy-btn');
+  navigator.clipboard.writeText(id).then(() => {
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = '⎘'; }, 1500);
+  }).catch(() => {});
+}
+
+// ── Whitelist all online ──────────────────────────────────────────────────────
+async function whitelistAllOnline() {
+  const r = await apiFetch('/api/whitelist/add-all-online', { method: 'POST' });
+  if (!r) return;
+  const d = await r.json();
+  if (d.error)   { alert('Error: ' + d.error); return; }
+  if (!d.added || !d.added.length) { alert('No players are currently online.'); return; }
+  const names = d.added.map(p => p.name || p.id).join(', ');
+  alert(`Added ${d.added.length} player(s) to whitelist:\n${names}`);
+  loadWlTab();
+}
+
+// ── RAM warning ───────────────────────────────────────────────────────────────
+function _updateRamWarning(data) {
+  const el = document.getElementById('ram-warning-banner');
+  if (!el) return;
+  const avail    = data.ram_available_gb;
+  const required = data.ram_required_gb;
+  const total    = data.ram_total_gb;
+  if (avail == null || required == null) { el.style.display = 'none'; return; }
+  if (avail < required) {
+    el.style.display = '';
+    el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${avail.toFixed(1)} GB available, ` +
+      `${required} GB needed for ${Math.max(0, (required - 20) / 12)} running map(s) + 20 GB overhead ` +
+      `(${total != null ? total.toFixed(1) + ' GB total' : 'total unknown'}). ` +
+      `Servers may crash or fail to start.`;
+  } else {
+    el.style.display = 'none';
+  }
+}
 
 // ── Left tabs ────────────────────────────────────────────────────────────────
 const LEFT_TABS = ['controls','whitelist'];
@@ -723,6 +830,12 @@ const _BUSY_COMMANDS = ['shutdown cluster', 'shutdown cluster now', 'force shutd
 const _BUSY_SUPPRESS_MS = 10 * 60 * 1000; // 10 minutes
 
 function cmd(command) {
+  // Debounce — ignore the same command if sent within 3 seconds (accidental double-click)
+  const now = Date.now();
+  if (command === _lastCmdStr && now - _lastCmdTime < _CMD_DEBOUNCE_MS) return;
+  _lastCmdStr  = command;
+  _lastCmdTime = now;
+
   const lower = command.trim().toLowerCase();
   if (_BUSY_COMMANDS.some(c => lower === c || lower.startsWith(c + ' '))) {
     // Controller will be busy — suppress auto-restart for the busy window.
@@ -1164,13 +1277,16 @@ function setTimerFromStatus(data) {
 
 function tickTimer() {
   const el = document.getElementById('restart-timer');
-  if (!timerTarget) { el.textContent = ''; return; }
+  if (!timerTarget) { el.textContent = ''; el.title = ''; return; }
   const secs = Math.max(0, Math.round(timerTarget - Date.now() / 1000));
   const h = String(Math.floor(secs / 3600)).padStart(2, '0');
   const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
   const s = String(secs % 60).padStart(2, '0');
   el.textContent = timerLabel + ' ' + h + ':' + m + ':' + s;
   el.style.color = secs < 900 ? '#f87171' : secs < 3600 ? '#fbbf24' : timerColor;
+  // Tooltip shows the actual wall-clock time so admin knows when it fires
+  const at = new Date(timerTarget * 1000);
+  el.title = 'At ' + at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 setInterval(tickTimer, 1000);
@@ -1326,7 +1442,10 @@ async function pollStatus() {
     const data = await r.json();
     if (data.error) { _markPollFail(); return; }
     _markPollOk();
+    _lastPollTime = Date.now();
     _checkStaleness(data);
+    _checkPlayerChanges(data);
+    _updateRamWarning(data);
     // Always render cards so the UI is never blank — the staleness warning
     // in the header is enough to communicate that data may be out of date.
     renderCards(data);
@@ -1502,6 +1621,36 @@ def get_whitelist():
         return jsonify({"entries": [], "error": str(exc)})
 
 
+@app.route("/api/whitelist/add-all-online", methods=["POST"])
+@login_required
+def whitelist_add_all_online():
+    """Add every currently online player to the whitelist in one shot."""
+    try:
+        with open(STATUS_JSON, encoding="utf-8") as f:
+            status = json.load(f)
+    except Exception:
+        return jsonify({"error": "Status not available"}), 503
+
+    players = []
+    for server in status.get("servers", {}).values():
+        for p in server.get("player_list", []):
+            sid = str(p.get("id", "")).strip()
+            if sid:
+                players.append({"id": sid, "name": p.get("name", sid)})
+
+    if not players:
+        return jsonify({"ok": True, "added": [], "message": "No players online"})
+
+    try:
+        with open(ADMIN_CMD, "a", encoding="utf-8") as f:
+            for p in players:
+                f.write(f"whitelist add {p['id']}\n")
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"ok": True, "added": players})
+
+
 @app.route("/api/command", methods=["POST"])
 @login_required
 def post_command():
@@ -1557,6 +1706,12 @@ def post_settings():
                 continue
             cfg.set(section, key, str(value))
     try:
+        # Back up the current config before overwriting so bad settings can be recovered
+        if os.path.exists(CONFIG_FILE):
+            try:
+                shutil.copy2(CONFIG_FILE, CONFIG_FILE + ".bak")
+            except Exception:
+                pass
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             cfg.write(f)
         return jsonify({"ok": True})

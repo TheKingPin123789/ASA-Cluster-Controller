@@ -5,6 +5,7 @@ import sys
 import json
 import time
 import shutil
+import ctypes
 import asyncio
 import datetime
 import threading
@@ -622,13 +623,27 @@ def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None
     threading.Thread(target=_post, daemon=True).start()
 
 
+def _is_valid_steam_id(sid: str) -> bool:
+    """Steam IDs are exactly 17 decimal digits."""
+    return bool(re.match(r'^\d{17}$', sid.strip()))
+
+
 def load_whitelist() -> set:
     """Return set of whitelisted Steam IDs. Empty set = whitelist disabled (all allowed)."""
     if not os.path.exists(WHITELIST_FILE):
         return set()
     try:
         with open(WHITELIST_FILE, encoding="utf-8") as f:
-            return {line.strip() for line in f if line.strip() and not line.startswith("#")}
+            valid = set()
+            for line in f:
+                sid = line.strip()
+                if not sid or sid.startswith("#"):
+                    continue
+                if _is_valid_steam_id(sid):
+                    valid.add(sid)
+                else:
+                    log(f"Whitelist: ignoring malformed entry '{sid}'")
+            return valid
     except Exception:
         return set()
 
@@ -1314,12 +1329,15 @@ def restart_single_server(key: str, origin: Optional["ServerState"] = None) -> N
 
 
 def _add_to_whitelist(steam_id: str) -> None:
+    if not _is_valid_steam_id(steam_id):
+        log(f"Whitelist: rejected invalid Steam ID '{steam_id}' — must be exactly 17 digits")
+        return
     try:
         existing: set = set()
         if os.path.exists(WHITELIST_FILE):
             with open(WHITELIST_FILE, encoding="utf-8") as f:
                 existing = {ln.strip() for ln in f if ln.strip() and not ln.startswith("#")}
-        existing.add(steam_id)
+        existing.add(steam_id.strip())
         with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(sorted(existing)) + "\n")
         log(f"Whitelist: added {steam_id}")
@@ -2387,6 +2405,33 @@ def ensure_default_server() -> None:
     start_server(DEFAULT_SERVER_KEY)
 
 
+class _MEMSTATEX(ctypes.Structure):
+    _fields_ = [
+        ("dwLength",                 ctypes.c_ulong),
+        ("dwMemoryLoad",             ctypes.c_ulong),
+        ("ullTotalPhys",             ctypes.c_ulonglong),
+        ("ullAvailPhys",             ctypes.c_ulonglong),
+        ("ullTotalPageFile",         ctypes.c_ulonglong),
+        ("ullAvailPageFile",         ctypes.c_ulonglong),
+        ("ullTotalVirtual",          ctypes.c_ulonglong),
+        ("ullAvailVirtual",          ctypes.c_ulonglong),
+        ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+def _get_ram_gb() -> tuple:
+    """Return (total_gb, available_gb) from the Windows memory API."""
+    try:
+        stat = _MEMSTATEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        total     = round(stat.ullTotalPhys  / (1024 ** 3), 1)
+        available = round(stat.ullAvailPhys  / (1024 ** 3), 1)
+        return total, available
+    except Exception:
+        return None, None
+
+
 def write_cluster_status() -> None:
     total_players = sum(state.player_count for state in SERVER_STATES.values())
     running = [state.cfg.key for state in SERVER_STATES.values() if state.is_running]
@@ -2450,6 +2495,13 @@ def write_cluster_status() -> None:
     server_exe = os.path.join(SERVER_ROOT, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
     server_found = os.path.exists(server_exe)
 
+    ram_total, ram_available = _get_ram_gb()
+    running_map_count = sum(
+        1 for s in SERVER_STATES.values() if s.is_running or s.is_starting
+    )
+    # 12 GB per running/starting map + 20 GB for OS and other services
+    ram_required = running_map_count * 12 + 20
+
     payload = {
         "cluster_name": CLUSTER_NAME,
         "max_players": MAX_PLAYERS,
@@ -2462,6 +2514,9 @@ def write_cluster_status() -> None:
         "whitelist_active": whitelist_active,
         "steamcmd_found": steamcmd_found,
         "server_found": server_found,
+        "ram_total_gb": ram_total,
+        "ram_available_gb": ram_available,
+        "ram_required_gb": ram_required,
         "timestamp": now,
     }
 
