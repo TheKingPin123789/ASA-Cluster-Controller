@@ -1,4 +1,5 @@
 @echo off
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 set REPO_URL=https://github.com/TheKingPin123789/ASA-Cluster-Controller
@@ -60,20 +61,20 @@ echo.
 cd /d "%~dp0controller"
 
 :: ── Controller ────────────────────────────────────────────────────────────────
-:: Only start if not already running (check PID file, then verify the PID exists)
+:: Only start if not already running (check PID file, then verify PID is alive)
 set CTRL_RUNNING=0
 if exist "controller.pid" (
     set /p CTRL_PID=<"controller.pid"
-    tasklist /FI "PID eq %CTRL_PID%" 2>nul | find /I "python" >nul 2>&1
+    tasklist /FI "PID eq !CTRL_PID!" 2>nul | find /I "python" >nul 2>&1
     if not errorlevel 1 set CTRL_RUNNING=1
 )
 
-if "%CTRL_RUNNING%"=="1" (
-    echo Controller is already running (PID %CTRL_PID%) -- skipping launch.
+if "!CTRL_RUNNING!"=="1" (
+    echo Controller is already running ^(PID !CTRL_PID!^) -- skipping launch.
 ) else (
     :: Clear any stale PID or restart signal from a previous session
-    del "controller.pid"      >nul 2>&1
-    del "controller.restart"  >nul 2>&1
+    del "controller.pid"     >nul 2>&1
+    del "controller.restart" >nul 2>&1
     echo Starting controller...
     start "ASA Cluster Controller" cmd /c python asa_cluster_controller.py
 )
@@ -91,12 +92,12 @@ if not exist "config.ini" (
 set DASH_RUNNING=0
 if exist "dashboard.pid" (
     set /p DASH_PID=<"dashboard.pid"
-    tasklist /FI "PID eq %DASH_PID%" 2>nul | find /I "python" >nul 2>&1
+    tasklist /FI "PID eq !DASH_PID!" 2>nul | find /I "python" >nul 2>&1
     if not errorlevel 1 set DASH_RUNNING=1
 )
 
-if "%DASH_RUNNING%"=="1" (
-    echo Dashboard is already running (PID %DASH_PID%) -- skipping launch.
+if "!DASH_RUNNING!"=="1" (
+    echo Dashboard is already running ^(PID !DASH_PID!^) -- skipping launch.
 ) else (
     del "dashboard.pid" >nul 2>&1
     echo Starting dashboard...
