@@ -25,5 +25,9 @@ if exist "controller\controller.pid" (
 timeout /t 2 >nul
 
 :launch
+:: Clear the restart signal before launching so the new process doesn't
+:: see the leftover file and immediately exit thinking it needs to restart.
+del "controller\controller.restart" >nul 2>&1
+
 :: Re-launch controller — cmd /c closes the window when Python exits
 start "ASA Cluster Controller" cmd /c "cd /d "%~dp0controller" && python asa_cluster_controller.py"
