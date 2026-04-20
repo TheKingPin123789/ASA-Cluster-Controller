@@ -295,6 +295,11 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 <div id="cards"><!-- injected by JS --></div>
 
+<div id="cluster-offline-banner" style="display:none; margin:10px 12px 0; padding:12px 16px; background:#131825; border:1px solid #2a3050; border-radius:6px; color:#9ca3af; font-size:13px; line-height:1.6;">
+  <span style="font-size:15px; font-weight:600; color:#e2e8f0;">Cluster is offline</span><br>
+  Press <strong style="color:#16a34a;">Start Cluster</strong> to bring all maps online, or use the <strong style="color:#16a34a;">Start</strong> button on any map card above to start a single map.
+</div>
+
 <div id="main">
   <!-- LEFT: controls / whitelist / settings tabs -->
   <div id="left">
@@ -816,7 +821,7 @@ function renderApPanel(players) {
     const mapDisplay = p.last_map ? (MAP_DISPLAY[p.last_map] || p.last_map) : '—';
     _playerModalCache[id] = {
       name: p.name || id, id,
-      map: isOnline ? mapDisplay : mapDisplay,
+      map: mapDisplay,
       mapKey: p.last_map, isOnline,
       last_seen: p.last_seen,
     };
@@ -948,6 +953,8 @@ function renderCards(data) {
   const startBtn = document.getElementById('btn-start-cluster');
   startBtn.disabled = anyActive;
   startBtn.className = 'btn btn-full ' + (anyActive ? 'btn-gray' : 'btn-bright-green');
+
+  document.getElementById('cluster-offline-banner').style.display = anyActive ? 'none' : '';
 
   const runCount = Object.values(data.servers).filter(s => s.is_running).length;
   document.getElementById('status-line').textContent =
@@ -1872,11 +1879,14 @@ async function save() {
     // Checkboxes store "true"/"false" strings; password fields send exact value
     if (i.type === 'checkbox') {
       payload[s][k] = i.checked ? 'true' : 'false';
+    } else if (i.type === 'password') {
+      // Only include password fields when the user actually typed something
+      if (i.value !== '') payload[s][k] = i.value;
     } else {
       // Use !== '' so a user can intentionally clear a field (e.g. mod_ids,
       // active_event, restart_time). Only fall back to placeholder when the
       // field is completely untouched (empty because we never set i.value).
-      payload[s][k] = i.type === 'password' ? i.value : (i.value !== '' ? i.value : i.placeholder);
+      payload[s][k] = i.value !== '' ? i.value : i.placeholder;
     }
   });
   const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };

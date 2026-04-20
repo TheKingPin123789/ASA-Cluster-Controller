@@ -1242,7 +1242,9 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
         if not requested:
             announce(origin, f"Unknown map '{start_match.group(1)}'. Type !help for map names.")
             return
-        state = SERVER_STATES[requested]
+        state = SERVER_STATES.get(requested)
+        if not state:
+            return
         if state.is_running or state.is_starting:
             announce(origin, f"{state.cfg.display_name} is already online or starting.")
             return
@@ -1278,20 +1280,25 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
             return
         requested = normalize_map_name(restart_match.group(1))
         if not requested:
+            announce(origin, f"Unknown map '{restart_match.group(1)}'. Type !help for map names.")
             return
         log(f"IN-GAME RESTART {requested}: requested by {sender_name} ({steam_id})")
-        restart_single_server(requested)
+        restart_single_server(requested, origin=origin)
         return
 
 
 
-def restart_single_server(key: str) -> None:
+def restart_single_server(key: str, origin: Optional["ServerState"] = None) -> None:
     state = SERVER_STATES[key]
     if not state.is_running:
         log(f"{key} is not running")
+        if origin is not None:
+            announce(origin, f"{state.cfg.display_name} is not running.")
         return
     log(f"RESTART {key}: saving and restarting...")
     announce(state, f"{state.cfg.display_name} is restarting now. Be back in a moment!")
+    if origin is not None and origin.cfg.key != key and origin.is_running:
+        announce(origin, f"{state.cfg.display_name} is restarting now.")
     stop_server_safe(state, "map restart")
     start_server(key)
 
