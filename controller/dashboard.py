@@ -294,7 +294,10 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
   body { font-size: 15px; overflow-y: auto; height: auto; }
   #main { flex-direction: column; overflow: visible; gap: 6px; padding: 6px 8px; }
   #left  { width: 100% !important; min-width: 0 !important; max-height: none; }
-  #right { min-height: 320px; }
+  #right { min-height: 0; }
+  /* Cap the output areas so tabs + input bar stay visible without huge scrolling */
+  #console-out { flex: none; height: 38vh; max-height: 380px; }
+  #log         { flex: none; height: 38vh; max-height: 380px; }
   #cards { gap: 6px; padding: 8px; }
   #cards .card { flex: 1 1 140px; max-width: none; }
   .grid2 { grid-template-columns: 1fr; }
