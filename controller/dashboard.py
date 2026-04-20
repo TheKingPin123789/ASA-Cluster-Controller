@@ -141,9 +141,13 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 
 /* Server cards */
 #cards { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2a3050; flex-shrink: 0; }
-.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 6px; padding: 9px 11px; min-width: 130px; flex: 0 1 150px; max-width: 155px; transition: border-color .2s; }
+.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 6px; padding: 9px 11px; min-width: 130px; flex: 0 1 150px; max-width: 155px; transition: border-color .2s, opacity .4s; }
 .card.online   { border-color: #16a34a; }
 .card.starting { border-color: #d97706; }
+/* When controller is offline all cards dim and buttons are disabled */
+#cards.stale .card { opacity: 0.45; pointer-events: none; }
+#cards.stale .card.online  { border-color: #2a3050; }
+#cards.stale .card.starting { border-color: #2a3050; }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .card-name { font-weight: 600; font-size: 14px; }
 .badge { padding: 2px 6px; border-radius: 3px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
@@ -1151,14 +1155,16 @@ function _checkStaleness(data) {
   const ageSeconds = Date.now() / 1000 - data.timestamp;
   const isStale = ageSeconds > _STALE_THRESHOLD_SECONDS;
   const sl = document.getElementById('status-line');
+  const cardsEl = document.getElementById('cards');
   if (isStale && !_controllerLost) {
     _controllerLost = true;
-    sl.dataset.savedText = sl.textContent;
     sl.textContent = '⚠ Controller offline — data is stale';
     sl.style.color = '#f87171';
+    cardsEl.classList.add('stale');
   } else if (!isStale && _controllerLost) {
     _controllerLost = false;
     sl.style.color = '';
+    cardsEl.classList.remove('stale');
     // renderCards will rewrite status-line text on the next tick
   }
 }
