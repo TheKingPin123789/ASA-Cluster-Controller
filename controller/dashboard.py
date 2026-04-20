@@ -706,7 +706,25 @@ function switchRightTab(name) {
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
+// Commands that cause the controller to be busy (saving/stopping servers)
+// for an extended period — suppress auto-restart while they're running.
+const _BUSY_COMMANDS = ['shutdown cluster', 'shutdown cluster now', 'force shutdown cluster',
+                        'restart', 'restart now'];
+const _BUSY_SUPPRESS_MS = 10 * 60 * 1000; // 10 minutes
+
 function cmd(command) {
+  const lower = command.trim().toLowerCase();
+  if (_BUSY_COMMANDS.some(c => lower === c || lower.startsWith(c + ' '))) {
+    // Controller will be busy — treat like a deliberate action so auto-restart
+    // doesn't fire while it's saving worlds and stopping server processes
+    _deliberateRestart = true;
+    _restartAttempts   = 0;
+    _stopWatcher();
+    _clearControllerBanner();
+    // Lift the suppress flag after the window so auto-restart works again
+    // if something genuinely goes wrong after the shutdown/restart completes
+    setTimeout(() => { if (_deliberateRestart) _deliberateRestart = false; }, _BUSY_SUPPRESS_MS);
+  }
   apiFetch('/api/command', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -1002,6 +1020,12 @@ function confirmCcm() {
   if (!_ccmAction) return;
   const { key, action } = _ccmAction;
   closeCcm();
+  // Per-map stop/restart also keeps the controller busy — suppress auto-restart
+  _deliberateRestart = true;
+  _restartAttempts   = 0;
+  _stopWatcher();
+  _clearControllerBanner();
+  setTimeout(() => { if (_deliberateRestart) _deliberateRestart = false; }, _BUSY_SUPPRESS_MS);
   if (action === 'stop')    cmd('stop '    + key);
   if (action === 'restart') cmd('restart ' + key);
 }
