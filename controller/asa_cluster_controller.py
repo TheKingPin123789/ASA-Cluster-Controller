@@ -1289,7 +1289,12 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
 
 
 def restart_single_server(key: str, origin: Optional["ServerState"] = None) -> None:
-    state = SERVER_STATES[key]
+    state = SERVER_STATES.get(key)
+    if state is None:
+        log(f"restart_single_server: unknown key '{key}'")
+        if origin is not None:
+            announce(origin, f"Unknown map: {key}")
+        return
     if not state.is_running:
         log(f"{key} is not running")
         if origin is not None:

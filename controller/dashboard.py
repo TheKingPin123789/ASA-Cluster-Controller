@@ -1136,17 +1136,37 @@ async function apiFetch(url, opts) {
   return r;
 }
 
+// ── Connection-lost indicator ─────────────────────────────────────────────────
+let _pollFailures = 0;
+const _MAX_POLL_FAILURES = 3;
+function _markPollOk() {
+  if (_pollFailures >= _MAX_POLL_FAILURES) {
+    // Restore the status line — renderCards will overwrite it next tick
+    document.getElementById('status-line').style.color = '';
+  }
+  _pollFailures = 0;
+}
+function _markPollFail() {
+  _pollFailures++;
+  if (_pollFailures >= _MAX_POLL_FAILURES) {
+    const sl = document.getElementById('status-line');
+    sl.textContent = '⚠ Connection lost — retrying…';
+    sl.style.color = '#f87171';
+  }
+}
+
 // ── Polling ───────────────────────────────────────────────────────────────────
 async function pollStatus() {
   try {
     const r = await apiFetch('/api/status');
-    if (!r || !r.ok) return;
+    if (!r || !r.ok) { _markPollFail(); return; }
     const data = await r.json();
-    if (data.error) return;
+    if (data.error) { _markPollFail(); return; }
+    _markPollOk();
     renderCards(data);
     renderPlayerList(data);
     setTimerFromStatus(data);
-  } catch(e) {}
+  } catch(e) { _markPollFail(); }
 }
 
 async function pollLogs() {
