@@ -2406,6 +2406,7 @@ def write_cluster_status() -> None:
             "pending_restart": state.pending_restart,
             "player_list": state.player_list,
             "crash_restart_count": state.crash_restart_count,
+            "online_since": state.online_since,
         }
 
     cluster_shutdown_in = None

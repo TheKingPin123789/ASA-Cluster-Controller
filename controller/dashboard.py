@@ -260,6 +260,18 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 .cm-body ul { margin:8px 0 0 18px; color:#fca5a5; }
 .cm-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
 
+/* Card action confirm modal */
+#card-confirm-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:2000; align-items:center; justify-content:center; }
+#card-confirm-modal.open { display:flex; }
+#card-confirm-box { background:#1a1f36; border:2px solid #374151; border-radius:8px; padding:22px 24px; max-width:380px; width:90%; display:flex; flex-direction:column; gap:14px; }
+#card-confirm-box.danger { border-color: #7f1d1d; }
+.ccm-title { font-size:16px; font-weight:700; color:#e2e8f0; }
+.ccm-body  { font-size:14px; color:#9ca3af; line-height:1.55; }
+.ccm-actions { display:flex; gap:8px; justify-content:flex-end; }
+
+/* Uptime badge on cards */
+.card-uptime { font-size:11px; color:#4b5563; margin-top:1px; min-height:13px; }
+
 /* Settings window */
 .settings-section { margin-top: 10px; }
 .settings-section .sec-title { margin-bottom: 6px; padding-bottom:3px; border-bottom:1px solid #2a3050; }
@@ -268,10 +280,22 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 /* Responsive layout */
 @media (max-width: 720px) {
-  #main { flex-direction: column; overflow-y: auto; overflow-x: hidden; }
-  #left { width: 100% !important; min-width: 0 !important; max-height: 55vh; }
-  #right { min-height: 300px; }
-  #cards .card { flex: 1 1 120px; }
+  body { font-size: 15px; overflow-y: auto; height: auto; }
+  #main { flex-direction: column; overflow: visible; gap: 6px; padding: 6px 8px; }
+  #left  { width: 100% !important; min-width: 0 !important; max-height: none; }
+  #right { min-height: 320px; }
+  #cards { gap: 6px; padding: 8px; }
+  #cards .card { flex: 1 1 140px; max-width: none; }
+  .grid2 { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
+  #player-modal-box, #card-confirm-box, #confirm-modal-box { width: 96%; padding: 16px; }
+}
+@media (max-width: 480px) {
+  #header { flex-wrap: wrap; gap: 6px; }
+  #header .title { font-size: 16px; }
+  .btn-sm { font-size: 12px; padding: 3px 7px; }
+  .card-name { font-size: 13px; }
+  #cards .card { flex: 1 1 100%; max-width: none; }
 }
 </style>
 </head>
@@ -445,6 +469,18 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
         </div>
       </div>
 
+    </div>
+  </div>
+</div>
+
+<!-- Card action (Stop / Restart) confirmation modal -->
+<div id="card-confirm-modal" onclick="if(event.target===this)closeCcm()">
+  <div id="card-confirm-box">
+    <div class="ccm-title" id="ccm-title">Confirm</div>
+    <div class="ccm-body"  id="ccm-body"></div>
+    <div class="ccm-actions">
+      <button class="btn btn-gray" onclick="closeCcm()">Cancel</button>
+      <button class="btn" id="ccm-confirm-btn" onclick="confirmCcm()">Confirm</button>
     </div>
   </div>
 </div>
@@ -925,11 +961,53 @@ function closePlayerModal() {
   document.getElementById('player-modal').classList.remove('open');
 }
 
+// ── Card-action confirm modal ─────────────────────────────────────────────────
+let _ccmAction = null;
+function openCcm(key, action, displayName) {
+  _ccmAction = { key, action };
+  const box = document.getElementById('card-confirm-box');
+  const isStop = action === 'stop';
+  box.className = isStop ? 'danger' : '';
+  document.getElementById('ccm-title').textContent =
+    isStop ? `Stop ${displayName}?` : `Restart ${displayName}?`;
+  document.getElementById('ccm-body').textContent =
+    isStop
+      ? `This will warn online players then shut down ${displayName}. Continue?`
+      : `${displayName} will save, restart, and be unavailable for a few minutes. Continue?`;
+  const btn = document.getElementById('ccm-confirm-btn');
+  btn.textContent  = isStop ? 'Stop' : 'Restart';
+  btn.className    = 'btn ' + (isStop ? 'btn-bright-red' : 'btn-bright-orange');
+  document.getElementById('card-confirm-modal').classList.add('open');
+}
+function closeCcm() {
+  document.getElementById('card-confirm-modal').classList.remove('open');
+  _ccmAction = null;
+}
+function confirmCcm() {
+  if (!_ccmAction) return;
+  const { key, action } = _ccmAction;
+  closeCcm();
+  if (action === 'stop')    cmd('stop '    + key);
+  if (action === 'restart') cmd('restart ' + key);
+}
+
+// ── Uptime helper ─────────────────────────────────────────────────────────────
+function fmtUptime(onlineSince) {
+  if (!onlineSince) return '';
+  const secs = Math.floor(Date.now() / 1000 - onlineSince);
+  if (secs < 60)  return '↑ <1m';
+  const m = Math.floor(secs / 60) % 60;
+  const h = Math.floor(secs / 3600) % 24;
+  const d = Math.floor(secs / 86400);
+  if (d > 0) return `↑ ${d}d ${h}h`;
+  if (h > 0) return `↑ ${h}h ${m}m`;
+  return `↑ ${m}m`;
+}
+
 // ── Server cards ─────────────────────────────────────────────────────────────
-function cardAction(key, action) {
-  if (action === 'start')   cmd('start '   + key);
-  else if (action === 'stop')    cmd('stop '    + key);
-  else if (action === 'restart') cmd('restart ' + key);
+function cardAction(key, action, displayName) {
+  if (action === 'start') { cmd('start ' + key); return; }
+  openCcm(key, action, displayName || key);
 }
 
 const cardEls = {};
@@ -965,6 +1043,8 @@ function renderCards(data) {
     const cls    = s.is_running ? 'online' : (s.is_starting ? 'starting' : 'offline');
     const label  = s.is_running ? 'Online' : (s.is_starting ? 'Starting' : 'Offline');
     const players = s.is_running ? s.player_count + ' / ' + (data.max_players || 70) + ' player(s)' : '';
+    const uptime  = s.is_running ? fmtUptime(s.online_since) : '';
+    const dn      = s.display_name;
     const crashBadge = (s.crash_restart_count > 0)
       ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
       : '';
@@ -975,6 +1055,8 @@ function renderCards(data) {
     const stopBadge = (stopMins != null)
       ? `<span title="Scheduled shutdown" style="font-size:11px;color:#fbbf24;margin-left:4px;">&#9201; ${stopMins}m</span>`
       : '';
+    const safeKey = escHtml(key);
+    const safeDn  = escHtml(dn);
 
     if (cardEls[key]) {
       const c = cardEls[key];
@@ -982,6 +1064,7 @@ function renderCards(data) {
       c.querySelector('.badge').className = 'badge ' + cls;
       c.querySelector('.badge').textContent = label;
       c.querySelector('.card-players').textContent = players;
+      c.querySelector('.card-uptime').textContent  = uptime;
       c.querySelector('.card-crash').innerHTML = crashBadge;
       c.querySelector('.card-stop-timer').innerHTML = stopBadge;
       c.querySelector('.btn-start').disabled   = s.is_running || s.is_starting;
@@ -993,7 +1076,7 @@ function renderCards(data) {
       c.dataset.key = key;
       c.innerHTML = `
         <div class="card-head">
-          <span class="card-name">${s.display_name}</span>
+          <span class="card-name">${safeDn}</span>
           <span class="badge ${cls}">${label}</span>
         </div>
         <div style="display:flex;align-items:center;min-height:16px;">
@@ -1001,10 +1084,11 @@ function renderCards(data) {
           <span class="card-crash">${crashBadge}</span>
           <span class="card-stop-timer">${stopBadge}</span>
         </div>
+        <div class="card-uptime">${uptime}</div>
         <div class="card-btns">
-          <button class="btn btn-bright-green  btn-sm btn-start"   onclick="cardAction('${key}','start')"   ${s.is_running||s.is_starting?'disabled':''}>Start</button>
-          <button class="btn btn-bright-red    btn-sm btn-stop"    onclick="cardAction('${key}','stop')"    ${!s.is_running?'disabled':''}>Stop</button>
-          <button class="btn btn-bright-orange btn-sm btn-restart" onclick="cardAction('${key}','restart')" ${!s.is_running?'disabled':''}>Restart</button>
+          <button class="btn btn-bright-green  btn-sm btn-start"   onclick="cardAction('${safeKey}','start','${safeDn}')"   ${s.is_running||s.is_starting?'disabled':''}>Start</button>
+          <button class="btn btn-bright-red    btn-sm btn-stop"    onclick="cardAction('${safeKey}','stop','${safeDn}')"    ${!s.is_running?'disabled':''}>Stop</button>
+          <button class="btn btn-bright-orange btn-sm btn-restart" onclick="cardAction('${safeKey}','restart','${safeDn}')" ${!s.is_running?'disabled':''}>Restart</button>
         </div>`;
       container.appendChild(c);
       cardEls[key] = c;
@@ -1156,6 +1240,26 @@ setInterval(pollAdminLogs, 1500);
 @login_required
 def index():
     return render_template_string(HTML)
+
+
+@app.route("/health")
+def health():
+    """Unauthenticated health-check endpoint for uptime monitors."""
+    try:
+        with open(STATUS_JSON, encoding="utf-8") as f:
+            data = json.load(f)
+        servers = data.get("servers", {})
+        running = [k for k, v in servers.items() if v.get("is_running")]
+        return jsonify({
+            "ok": True,
+            "running_servers": running,
+            "total_players": data.get("total_players", 0),
+            "cluster_shutdown_scheduled": data.get("cluster_shutdown_scheduled", False),
+        })
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "controller not ready"}), 503
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/status")
