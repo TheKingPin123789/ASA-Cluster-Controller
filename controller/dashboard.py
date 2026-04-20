@@ -264,6 +264,10 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 .cm-body ul { margin:8px 0 0 18px; color:#fca5a5; }
 .cm-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
 
+/* Controller auto-restart banner */
+#controller-alert-banner.restarting { background:#1c2340; border:1px solid #3b4a7a; color:#93c5fd; }
+#controller-alert-banner.failed     { background:#2d0f0f; border:1px solid #7f1d1d; color:#fca5a5; }
+
 /* Card action confirm modal */
 #card-confirm-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:2000; align-items:center; justify-content:center; }
 #card-confirm-modal.open { display:flex; }
@@ -327,6 +331,8 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
   <span style="font-size:15px; font-weight:600; color:#e2e8f0;">Cluster is offline</span><br>
   Press <strong style="color:#16a34a;">Start Cluster</strong> to bring all maps online, or use the <strong style="color:#16a34a;">Start</strong> button on any map card above to start a single map.
 </div>
+
+<div id="controller-alert-banner" style="display:none; margin:6px 12px 0; padding:11px 16px; border-radius:6px; font-size:13px; line-height:1.6;"></div>
 
 <div id="main">
   <!-- LEFT: controls / whitelist / settings tabs -->
@@ -709,6 +715,8 @@ function cmd(command) {
 function restartProcess(which) {
   const label = which === 'controller' ? 'Controller' : 'Dashboard';
   if (!confirm('Restart the ' + label + ' process?\n\nThe ' + label.toLowerCase() + ' window will close and reopen automatically.')) return;
+  // Mark as deliberate so the auto-restart logic doesn't also fire
+  if (which === 'controller') _deliberateRestart = true;
   apiFetch('/api/restart/' + which, {method: 'POST'})
     .then(r => r ? r.json() : null)
     .then(d => {
@@ -1140,6 +1148,62 @@ async function apiFetch(url, opts) {
   return r;
 }
 
+// ── Controller auto-restart ───────────────────────────────────────────────────
+let _deliberateRestart  = false;  // set when user manually restarts controller
+let _autoRestartDone    = false;  // only attempt once per offline event
+let _autoRestartWatcher = null;   // interval watching for recovery
+const _AUTO_RESTART_TIMEOUT_MS = 90_000; // give up after 90 s
+
+function _showControllerBanner(cls, html) {
+  const b = document.getElementById('controller-alert-banner');
+  b.className = cls;
+  b.innerHTML = html;
+  b.style.display = cls ? '' : 'none';
+}
+
+function _clearControllerBanner() {
+  _showControllerBanner('', '');
+}
+
+function _startRecoveryWatcher() {
+  // Already watching or controller came back — don't double-start
+  if (_autoRestartWatcher) return;
+  const deadline = Date.now() + _AUTO_RESTART_TIMEOUT_MS;
+  _autoRestartWatcher = setInterval(() => {
+    if (!_controllerLost) {
+      // Controller is back
+      clearInterval(_autoRestartWatcher);
+      _autoRestartWatcher = null;
+      _autoRestartDone    = false;
+      _clearControllerBanner();
+      return;
+    }
+    if (Date.now() > deadline) {
+      clearInterval(_autoRestartWatcher);
+      _autoRestartWatcher = null;
+      _showControllerBanner('failed',
+        '<strong>&#9888; Controller could not restart.</strong><br>' +
+        'Please check the controller window or restart it manually using <em>start_controller.bat</em>.');
+    }
+  }, 3000);
+}
+
+async function _attemptAutoRestart() {
+  _showControllerBanner('restarting',
+    '<strong>&#8635; Controller went offline — attempting automatic restart…</strong><br>' +
+    'This may take up to 30 seconds. If it does not recover a manual restart may be required.');
+  try {
+    const r = await fetch('/api/restart/controller', { method: 'POST' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch(e) {
+    _showControllerBanner('failed',
+      '<strong>&#9888; Auto-restart failed.</strong><br>' +
+      'Could not contact the dashboard restart endpoint. Please restart manually via <em>start_controller.bat</em>.');
+    return;
+  }
+  _startRecoveryWatcher();
+}
+
 // ── Connection-lost / stale-data indicator ────────────────────────────────────
 // The dashboard and controller are separate processes. The dashboard keeps
 // serving the last cluster_status.json even after the controller closes, so
@@ -1158,13 +1222,25 @@ function _checkStaleness(data) {
   const cardsEl = document.getElementById('cards');
   if (isStale && !_controllerLost) {
     _controllerLost = true;
-    sl.textContent = '⚠ Controller offline — data is stale';
+    sl.textContent = '⚠ Controller offline — attempting restart…';
     sl.style.color = '#f87171';
     cardsEl.classList.add('stale');
+    // Auto-restart unless the user deliberately triggered this
+    if (!_deliberateRestart && !_autoRestartDone) {
+      _autoRestartDone = true;
+      _attemptAutoRestart();
+    }
   } else if (!isStale && _controllerLost) {
     _controllerLost = false;
+    _deliberateRestart = false;
+    _autoRestartDone   = false;
+    if (_autoRestartWatcher) {
+      clearInterval(_autoRestartWatcher);
+      _autoRestartWatcher = null;
+    }
     sl.style.color = '';
     cardsEl.classList.remove('stale');
+    _clearControllerBanner();
     // renderCards will rewrite status-line text on the next tick
   }
 }
