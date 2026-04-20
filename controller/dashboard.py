@@ -1153,6 +1153,10 @@ let _deliberateRestart  = false;  // set when user manually restarts controller
 let _autoRestartDone    = false;  // only attempt once per offline event
 let _autoRestartWatcher = null;   // interval watching for recovery
 const _AUTO_RESTART_TIMEOUT_MS = 90_000; // give up after 90 s
+// On fresh page load give the controller time to boot before auto-restarting.
+// 60 s covers SteamCMD update checks and slow hardware cold starts.
+const _STARTUP_GRACE_MS = 60_000;
+const _startupGraceUntil = Date.now() + _STARTUP_GRACE_MS;
 
 function _showControllerBanner(cls, html) {
   const b = document.getElementById('controller-alert-banner');
@@ -1225,8 +1229,8 @@ function _checkStaleness(data) {
     sl.textContent = '⚠ Controller offline — attempting restart…';
     sl.style.color = '#f87171';
     cardsEl.classList.add('stale');
-    // Auto-restart unless the user deliberately triggered this
-    if (!_deliberateRestart && !_autoRestartDone) {
+    // Auto-restart unless deliberate or still within the startup grace window
+    if (!_deliberateRestart && !_autoRestartDone && Date.now() > _startupGraceUntil) {
       _autoRestartDone = true;
       _attemptAutoRestart();
     }
