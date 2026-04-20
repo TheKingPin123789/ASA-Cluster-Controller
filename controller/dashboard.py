@@ -304,7 +304,6 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
   #log         { flex: none; height: 38vh; max-height: 380px; }
   #cards { gap: 6px; padding: 8px; }
   #cards .card { flex: 1 1 140px; max-width: none; }
-  .grid2 { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
   /* Remove fixed min-width so modals don't bleed off narrow screens */
   #player-modal-box { min-width: 0; width: 96%; padding: 16px; }
