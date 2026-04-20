@@ -725,15 +725,13 @@ const _BUSY_SUPPRESS_MS = 10 * 60 * 1000; // 10 minutes
 function cmd(command) {
   const lower = command.trim().toLowerCase();
   if (_BUSY_COMMANDS.some(c => lower === c || lower.startsWith(c + ' '))) {
-    // Controller will be busy — treat like a deliberate action so auto-restart
-    // doesn't fire while it's saving worlds and stopping server processes
-    _deliberateRestart = true;
-    _restartAttempts   = 0;
+    // Controller will be busy — suppress auto-restart for the busy window.
+    // Using a timestamp instead of a boolean so overlapping commands each
+    // extend the deadline rather than racing to clear a shared flag.
+    _suppressUntil   = Date.now() + _BUSY_SUPPRESS_MS;
+    _restartAttempts = 0;
     _stopWatcher();
     _clearControllerBanner();
-    // Lift the suppress flag after the window so auto-restart works again
-    // if something genuinely goes wrong after the shutdown/restart completes
-    setTimeout(() => { if (_deliberateRestart) _deliberateRestart = false; }, _BUSY_SUPPRESS_MS);
   }
   apiFetch('/api/command', {
     method: 'POST',
@@ -747,7 +745,7 @@ function restartProcess(which) {
   const label = which === 'controller' ? 'Controller' : 'Dashboard';
   if (!confirm('Restart the ' + label + ' process?\n\nThe ' + label.toLowerCase() + ' window will close and reopen automatically.')) return;
   // Mark as deliberate so the auto-restart logic doesn't also fire
-  if (which === 'controller') { _deliberateRestart = true; _restartAttempts = 0; _stopWatcher(); _clearControllerBanner(); }
+  if (which === 'controller') { _suppressUntil = Date.now() + _BUSY_SUPPRESS_MS; _restartAttempts = 0; _stopWatcher(); _clearControllerBanner(); }
   apiFetch('/api/restart/' + which, {method: 'POST'})
     .then(r => r ? r.json() : null)
     .then(d => {
@@ -1031,11 +1029,10 @@ function confirmCcm() {
   const { key, action } = _ccmAction;
   closeCcm();
   // Per-map stop/restart also keeps the controller busy — suppress auto-restart
-  _deliberateRestart = true;
-  _restartAttempts   = 0;
+  _suppressUntil   = Date.now() + _BUSY_SUPPRESS_MS;
+  _restartAttempts = 0;
   _stopWatcher();
   _clearControllerBanner();
-  setTimeout(() => { if (_deliberateRestart) _deliberateRestart = false; }, _BUSY_SUPPRESS_MS);
   if (action === 'stop')    cmd('stop '    + key);
   if (action === 'restart') cmd('restart ' + key);
 }
@@ -1044,7 +1041,8 @@ function confirmCcm() {
 function fmtUptime(onlineSince) {
   if (!onlineSince) return '';
   const secs = Math.floor(Date.now() / 1000 - onlineSince);
-  if (secs < 60)  return '↑ <1m';
+  if (!isFinite(secs) || secs < 0) return '';
+  if (secs < 60)  return `↑ ${secs}s`;
   const m = Math.floor(secs / 60) % 60;
   const h = Math.floor(secs / 3600) % 24;
   const d = Math.floor(secs / 86400);
@@ -1199,7 +1197,7 @@ const _STARTUP_GRACE_MS  = 120_000;  // wait before first auto-restart attempt
 const _RETRY_INTERVAL_MS = 120_000;  // wait between subsequent attempts
 const _MAX_RETRIES       = 3;
 
-let _deliberateRestart  = false;
+let _suppressUntil      = 0;   // epoch ms — auto-restart suppressed while Date.now() < this
 let _restartAttempts    = 0;
 let _autoRestartWatcher = null;
 const _startupGraceUntil = Date.now() + _STARTUP_GRACE_MS;
@@ -1286,18 +1284,20 @@ function _checkStaleness(data) {
     sl.style.color = '#f87171';
     cardsEl.classList.add('stale');
     // Auto-restart unless deliberate or still within the startup grace window
-    if (!_deliberateRestart && _restartAttempts === 0 && Date.now() > _startupGraceUntil) {
+    if (Date.now() >= _suppressUntil && _restartAttempts === 0 && Date.now() > _startupGraceUntil) {
       _attemptAutoRestart();
     }
   } else if (!isStale && _controllerLost) {
-    _controllerLost    = false;
-    _deliberateRestart = false;
-    _restartAttempts   = 0;
+    _controllerLost  = false;
+    _suppressUntil   = 0;
+    _restartAttempts = 0;
     _stopWatcher();
     sl.style.color = '';
     cardsEl.classList.remove('stale');
-    _clearControllerBanner();
-    // renderCards will rewrite status-line text on the next tick
+    // Show a brief green confirmation so the admin knows recovery worked
+    _showControllerBanner('restarting',
+      '<strong>&#10003; Controller is back online.</strong>');
+    setTimeout(_clearControllerBanner, 4000);
   }
 }
 
