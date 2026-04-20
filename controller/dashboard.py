@@ -1431,7 +1431,7 @@ def index():
 @app.route("/health")
 @login_required
 def health():
-    """Unauthenticated health-check endpoint for uptime monitors."""
+    """Health-check endpoint — requires login when auth is enabled."""
     try:
         with open(STATUS_JSON, encoding="utf-8") as f:
             data = json.load(f)
