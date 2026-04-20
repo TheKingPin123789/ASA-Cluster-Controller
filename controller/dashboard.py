@@ -100,15 +100,23 @@ def _safe_next(url: str) -> str:
     return url or "/"
 
 
+_NO_AUTH_PATHS = {"/health", "/login", "/logout"}
+
 def login_required(f):
     """Decorator — bypassed entirely when no password is configured.
     When auth is enabled: redirects to /login for page routes, returns 401 for API routes."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if _auth_enabled() and not session.get("logged_in"):
+            # Never gate health-check or auth routes themselves
+            if request.path in _NO_AUTH_PATHS:
+                return f(*args, **kwargs)
             if request.path.startswith("/api/"):
                 return jsonify({"error": "Unauthorized"}), 401
-            return redirect(url_for("login_page", next=request.path))
+            # Use no-store so browsers never cache the login redirect
+            resp = redirect(url_for("login_page", next=request.path))
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
         return f(*args, **kwargs)
     return decorated
 
@@ -1399,16 +1407,23 @@ def health():
             data = json.load(f)
         servers = data.get("servers", {})
         running = [k for k, v in servers.items() if v.get("is_running")]
-        return jsonify({
+        resp = jsonify({
             "ok": True,
             "running_servers": running,
             "total_players": data.get("total_players", 0),
             "cluster_shutdown_scheduled": data.get("cluster_shutdown_scheduled", False),
         })
     except FileNotFoundError:
-        return jsonify({"ok": False, "error": "controller not ready"}), 503
+        resp = jsonify({"ok": False, "error": "controller not ready"}), 503
     except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        resp = jsonify({"ok": False, "error": str(exc)}), 500
+    # Explicitly mark as public/no-cache so browsers never intercept this
+    # with a cached login redirect from a previous session
+    if isinstance(resp, tuple):
+        resp[0].headers["Cache-Control"] = "no-store"
+    else:
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/api/status")
