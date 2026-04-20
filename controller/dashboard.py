@@ -1672,6 +1672,7 @@ def get_defaults():
             "crash_window_minutes": "60",
         },
         "discord": {
+            "discord_enabled": "false",
             "use_bot": "false",
             "webhook_url": "",
             "bot_token": "",
@@ -1862,15 +1863,17 @@ const SCHEMA = [
       {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
     ]},
     { title:'Discord Notifications', fields:[
-      {s:'discord', k:'use_bot', label:'Enable Two-Way Bot (advanced)', type:'checkbox', ph:'false',
+      {s:'discord', k:'discord_enabled', label:'Enable Discord Notifications', type:'checkbox', ph:'false',
+        hint:'Master switch — off by default. Turn on to send notifications to Discord via webhook or bot.'},
+      {s:'discord', k:'use_bot', label:'Enable Two-Way Bot (advanced)', type:'checkbox', ph:'false', visGroup:'discord-settings',
         hint:'Off = simple webhook (one-way notifications). On = full Discord bot with commands from Discord.'},
       {s:'discord', k:'webhook_url', label:'Webhook URL', ph:'https://discord.com/api/webhooks/...', wide:true, visGroup:'webhook',
         hint:'Paste your Discord channel webhook URL — Discord → channel settings → Integrations → Webhooks → New Webhook → Copy URL'},
     ]},
-    { title:'Notification Events', grid:true, fields:[
-      {s:'discord', k:'notify_server_events',  label:'Server Online',  ph:'true', hint:'Notify when a server comes online'},
-      {s:'discord', k:'notify_crash_events',   label:'Crash Events',   ph:'true', hint:'Notify on crash, auto-restart, and crash limit reached'},
-      {s:'discord', k:'notify_cluster_events', label:'Cluster Events', ph:'true', hint:'Notify on cluster restarts, shutdowns, and scheduled events'},
+    { title:'Notification Events', fields:[
+      {s:'discord', k:'notify_server_events',  label:'Server Online',  ph:'true', visGroup:'discord-settings', hint:'Notify when a server comes online'},
+      {s:'discord', k:'notify_crash_events',   label:'Crash Events',   ph:'true', visGroup:'discord-settings', hint:'Notify on crash, auto-restart, and crash limit reached'},
+      {s:'discord', k:'notify_cluster_events', label:'Cluster Events', ph:'true', visGroup:'discord-settings', hint:'Notify on cluster restarts, shutdowns, and scheduled events'},
     ]},
     { title:'Bot Setup (Two-Way)', fields:[
       {type:'info', visGroup:'bot', html:`
@@ -2043,8 +2046,10 @@ function render(data) {
           // Toggle switch — value stored as "true"/"false" string in config
           const val = (saved || f.ph || 'false').trim().toLowerCase();
           const checked = val === 'true';
-          // Only wire the Discord visibility toggle to the use_bot field
-          const onchg = (f.s === 'discord' && f.k === 'use_bot') ? ' onchange="onDiscordToggle(this)"' : '';
+          // Wire Discord visibility toggles
+          const onchg = (f.s === 'discord' && f.k === 'discord_enabled') ? ' onchange="onDiscordEnabledToggle(this)"'
+                      : (f.s === 'discord' && f.k === 'use_bot')         ? ' onchange="onDiscordToggle(this)"'
+                      : '';
           d.innerHTML = `<label class="toggle-label">
             <input type="checkbox" class="toggle-cb" data-s="${f.s}" data-k="${f.k}"${checked ? ' checked' : ''}${onchg}>
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
@@ -2099,13 +2104,38 @@ function applyDiscordVisibility(botEnabled) {
   });
 }
 
+function applyDiscordEnabledVisibility(enabled) {
+  document.querySelectorAll('[data-vis-group="discord-settings"]').forEach(el => {
+    el.style.display = enabled ? '' : 'none';
+  });
+  // Also hide webhook/bot sub-groups when Discord is fully disabled
+  if (!enabled) {
+    document.querySelectorAll('[data-vis-group="webhook"],[data-vis-group="bot"]').forEach(el => {
+      el.style.display = 'none';
+    });
+  } else {
+    // Re-apply bot/webhook split based on current use_bot value
+    const useBotCb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
+    if (useBotCb) applyDiscordVisibility(useBotCb.checked);
+  }
+}
+
+function onDiscordEnabledToggle(cb) {
+  applyDiscordEnabledVisibility(cb.checked);
+}
+
 function onDiscordToggle(cb) {
   applyDiscordVisibility(cb.checked);
 }
 
 function wireDiscordToggle() {
-  const cb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
-  if (cb) applyDiscordVisibility(cb.checked);
+  const enabledCb = document.querySelector('input[data-s="discord"][data-k="discord_enabled"]');
+  const enabled = enabledCb ? enabledCb.checked : false;
+  applyDiscordEnabledVisibility(enabled);
+  if (enabled) {
+    const useBotCb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
+    if (useBotCb) applyDiscordVisibility(useBotCb.checked);
+  }
 }
 
 async function load() {

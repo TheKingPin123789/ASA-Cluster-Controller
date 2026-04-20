@@ -582,6 +582,11 @@ DISCORD_BOT = DiscordBot()
 
 def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
     """Send a Discord notification via bot or webhook depending on config."""
+    # Master switch — disabled by default, must be explicitly enabled in settings
+    enabled = (_cfg.get("discord", "discord_enabled") if _cfg.has_option("discord", "discord_enabled") else "false").strip().lower() == "true"
+    if not enabled:
+        return
+
     # Silenced after cluster shutdown message — suppress notifications while
     # servers wind down or starting maps come online during a shutdown sequence
     if CLUSTER.discord_silent:
