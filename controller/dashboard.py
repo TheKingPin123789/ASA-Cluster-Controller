@@ -291,6 +291,8 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 /* Responsive layout */
 @media (max-width: 720px) {
+  .btn { padding: 10px 12px; }
+  .btn-sm { padding: 8px 10px; }
   /* Prevent any element from causing a horizontal scrollbar */
   html { overflow-x: hidden; }
   body { font-size: 15px; overflow-x: hidden; overflow-y: auto; height: auto; max-width: 100vw; }
@@ -312,7 +314,7 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 @media (max-width: 480px) {
   #header { flex-wrap: wrap; gap: 6px; }
   #header .title { font-size: 16px; }
-  .btn-sm { font-size: 12px; padding: 3px 7px; }
+  .btn-sm { font-size: 12px; padding: 8px 10px; }
   .card-name { font-size: 13px; }
   #cards .card { flex: 1 1 100%; max-width: none; }
 }
