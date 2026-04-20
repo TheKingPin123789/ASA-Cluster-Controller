@@ -291,7 +291,11 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 /* Responsive layout */
 @media (max-width: 720px) {
-  body { font-size: 15px; overflow-y: auto; height: auto; }
+  /* Prevent any element from causing a horizontal scrollbar */
+  html { overflow-x: hidden; }
+  body { font-size: 15px; overflow-x: hidden; overflow-y: auto; height: auto; max-width: 100vw; }
+  #header, #cards, #main, #left, #right, #right-tab-content,
+  #console-wrap, #log-wrap, .tab-panel { max-width: 100%; box-sizing: border-box; }
   #main { flex-direction: column; overflow: visible; gap: 6px; padding: 6px 8px; }
   #left  { width: 100% !important; min-width: 0 !important; max-height: none; }
   #right { min-height: 0; }
@@ -302,7 +306,9 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
   #cards .card { flex: 1 1 140px; max-width: none; }
   .grid2 { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
-  #player-modal-box, #card-confirm-box, #confirm-modal-box { width: 96%; padding: 16px; }
+  /* Remove fixed min-width so modals don't bleed off narrow screens */
+  #player-modal-box { min-width: 0; width: 96%; padding: 16px; }
+  #card-confirm-box, #confirm-modal-box { width: 96%; padding: 16px; }
 }
 @media (max-width: 480px) {
   #header { flex-wrap: wrap; gap: 6px; }
