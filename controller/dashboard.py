@@ -1136,26 +1136,30 @@ async function apiFetch(url, opts) {
   return r;
 }
 
-// ── Connection-lost indicator ─────────────────────────────────────────────────
+// ── Connection-lost / stale-data indicator ────────────────────────────────────
 // The dashboard and controller are separate processes. The dashboard keeps
 // serving the last cluster_status.json even after the controller closes, so
 // HTTP polls keep succeeding with stale data. We detect this by comparing
-// the timestamp embedded in the JSON against the current time.
-const _STALE_THRESHOLD_SECONDS = 20; // controller writes every ~5s normally
+// the "timestamp" field written into the JSON by the controller against now.
+// Cards still render with whatever data is available — the warning sits on
+// top so the user knows it may be out of date.
+const _STALE_THRESHOLD_SECONDS = 25; // controller writes every ~5 s normally
 let _controllerLost = false;
 
 function _checkStaleness(data) {
   if (!data.timestamp) return;
   const ageSeconds = Date.now() / 1000 - data.timestamp;
   const isStale = ageSeconds > _STALE_THRESHOLD_SECONDS;
+  const sl = document.getElementById('status-line');
   if (isStale && !_controllerLost) {
     _controllerLost = true;
-    const sl = document.getElementById('status-line');
+    sl.dataset.savedText = sl.textContent;
     sl.textContent = '⚠ Controller offline — data is stale';
     sl.style.color = '#f87171';
   } else if (!isStale && _controllerLost) {
     _controllerLost = false;
-    document.getElementById('status-line').style.color = '';
+    sl.style.color = '';
+    // renderCards will rewrite status-line text on the next tick
   }
 }
 
@@ -1185,10 +1189,11 @@ async function pollStatus() {
     if (data.error) { _markPollFail(); return; }
     _markPollOk();
     _checkStaleness(data);
-    if (_controllerLost) return; // don't overwrite the warning with stale card data
+    // Always render cards so the UI is never blank — the staleness warning
+    // in the header is enough to communicate that data may be out of date.
     renderCards(data);
     renderPlayerList(data);
-    setTimerFromStatus(data);
+    if (!_controllerLost) setTimerFromStatus(data);
   } catch(e) { _markPollFail(); }
 }
 
