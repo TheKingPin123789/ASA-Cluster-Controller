@@ -59,8 +59,24 @@ echo.
 
 cd /d "%~dp0controller"
 
-:: Start controller -- wizard runs here on first boot if no config.ini found
-start "ASA Cluster Controller" cmd /c python asa_cluster_controller.py
+:: ── Controller ────────────────────────────────────────────────────────────────
+:: Only start if not already running (check PID file, then verify the PID exists)
+set CTRL_RUNNING=0
+if exist "controller.pid" (
+    set /p CTRL_PID=<"controller.pid"
+    tasklist /FI "PID eq %CTRL_PID%" 2>nul | find /I "python" >nul 2>&1
+    if not errorlevel 1 set CTRL_RUNNING=1
+)
+
+if "%CTRL_RUNNING%"=="1" (
+    echo Controller is already running (PID %CTRL_PID%) -- skipping launch.
+) else (
+    :: Clear any stale PID or restart signal from a previous session
+    del "controller.pid"      >nul 2>&1
+    del "controller.restart"  >nul 2>&1
+    echo Starting controller...
+    start "ASA Cluster Controller" cmd /c python asa_cluster_controller.py
+)
 
 :: Wait for config.ini before launching the dashboard
 echo Waiting for setup to complete...
@@ -70,8 +86,22 @@ if not exist "config.ini" (
     goto wait_config
 )
 
-:: Start dashboard
-start "ASA Dashboard" cmd /c python dashboard.py
+:: ── Dashboard ─────────────────────────────────────────────────────────────────
+:: Only start if not already running
+set DASH_RUNNING=0
+if exist "dashboard.pid" (
+    set /p DASH_PID=<"dashboard.pid"
+    tasklist /FI "PID eq %DASH_PID%" 2>nul | find /I "python" >nul 2>&1
+    if not errorlevel 1 set DASH_RUNNING=1
+)
+
+if "%DASH_RUNNING%"=="1" (
+    echo Dashboard is already running (PID %DASH_PID%) -- skipping launch.
+) else (
+    del "dashboard.pid" >nul 2>&1
+    echo Starting dashboard...
+    start "ASA Dashboard" cmd /c python dashboard.py
+)
 
 :: Open browser
 timeout /t 2 >nul
