@@ -816,7 +816,7 @@ function renderApPanel(players) {
     const mapDisplay = p.last_map ? (MAP_DISPLAY[p.last_map] || p.last_map) : '—';
     _playerModalCache[id] = {
       name: p.name || id, id,
-      map: isOnline ? mapDisplay : mapDisplay,
+      map: mapDisplay,
       mapKey: p.last_map, isOnline,
       last_seen: p.last_seen,
     };
@@ -1872,11 +1872,14 @@ async function save() {
     // Checkboxes store "true"/"false" strings; password fields send exact value
     if (i.type === 'checkbox') {
       payload[s][k] = i.checked ? 'true' : 'false';
+    } else if (i.type === 'password') {
+      // Only include password fields when the user actually typed something
+      if (i.value !== '') payload[s][k] = i.value;
     } else {
       // Use !== '' so a user can intentionally clear a field (e.g. mod_ids,
       // active_event, restart_time). Only fall back to placeholder when the
       // field is completely untouched (empty because we never set i.value).
-      payload[s][k] = i.type === 'password' ? i.value : (i.value !== '' ? i.value : i.placeholder);
+      payload[s][k] = i.value !== '' ? i.value : i.placeholder;
     }
   });
   const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };
