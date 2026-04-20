@@ -1858,14 +1858,16 @@ def poll_admin_commands() -> None:
         return
 
     try:
-        with open(ADMIN_COMMAND_FILE, "r", encoding="utf-8") as f:
+        # Open in r+ so read and truncate happen on the same file handle,
+        # closing the race window where the dashboard could write new commands
+        # between a separate read-close and write-open.
+        with open(ADMIN_COMMAND_FILE, "r+", encoding="utf-8") as f:
             commands = [line.strip() for line in f if line.strip()]
+            f.seek(0)
+            f.truncate()
 
         if not commands:
             return
-
-        with open(ADMIN_COMMAND_FILE, "w", encoding="utf-8") as f:
-            f.write("")
 
         for command in commands:
             global _is_admin_context
@@ -1873,6 +1875,8 @@ def poll_admin_commands() -> None:
             try:
                 log(f"ADMIN CMD: {command}")
                 handle_admin_command(command)
+            except Exception as exc:
+                log(f"ADMIN CMD ERROR ({command}): {exc}")
             finally:
                 _is_admin_context = False
 

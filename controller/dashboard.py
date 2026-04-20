@@ -1464,7 +1464,7 @@ def get_status():
 @app.route("/api/logs")
 @login_required
 def get_logs():
-    n = request.args.get("n", 300, type=int)
+    n = min(max(request.args.get("n", 300, type=int), 1), 2000)
     try:
         with open(LOG_FILE, encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
@@ -1478,7 +1478,7 @@ def get_logs():
 @app.route("/api/admin_logs")
 @login_required
 def get_admin_logs():
-    n = request.args.get("n", 200, type=int)
+    n = min(max(request.args.get("n", 200, type=int), 1), 2000)
     try:
         with open(ADMIN_LOG_FILE, encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
