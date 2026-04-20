@@ -716,7 +716,7 @@ function restartProcess(which) {
   const label = which === 'controller' ? 'Controller' : 'Dashboard';
   if (!confirm('Restart the ' + label + ' process?\n\nThe ' + label.toLowerCase() + ' window will close and reopen automatically.')) return;
   // Mark as deliberate so the auto-restart logic doesn't also fire
-  if (which === 'controller') _deliberateRestart = true;
+  if (which === 'controller') { _deliberateRestart = true; _restartAttempts = 0; _stopWatcher(); _clearControllerBanner(); }
   apiFetch('/api/restart/' + which, {method: 'POST'})
     .then(r => r ? r.json() : null)
     .then(d => {
@@ -1149,13 +1149,22 @@ async function apiFetch(url, opts) {
 }
 
 // ── Controller auto-restart ───────────────────────────────────────────────────
-let _deliberateRestart  = false;  // set when user manually restarts controller
-let _autoRestartDone    = false;  // only attempt once per offline event
-let _autoRestartWatcher = null;   // interval watching for recovery
-const _AUTO_RESTART_TIMEOUT_MS = 90_000; // give up after 90 s
-// On fresh page load give the controller time to boot before auto-restarting.
-// 60 s covers SteamCMD update checks and slow hardware cold starts.
-const _STARTUP_GRACE_MS = 60_000;
+// Timeline:
+//   0 s      — page loads, 120 s startup grace starts (controller may be booting)
+//   120 s+   — grace over; stale data triggers attempt #1
+//   120 s later — if still offline, attempt #2
+//   120 s later — if still offline, attempt #3
+//   after 3 failed attempts — permanent error banner, manual action required
+//
+// Deliberate restarts (Restart Controller button) suppress auto-restart entirely.
+
+const _STARTUP_GRACE_MS  = 120_000;  // wait before first auto-restart attempt
+const _RETRY_INTERVAL_MS = 120_000;  // wait between subsequent attempts
+const _MAX_RETRIES       = 3;
+
+let _deliberateRestart  = false;
+let _restartAttempts    = 0;
+let _autoRestartWatcher = null;
 const _startupGraceUntil = Date.now() + _STARTUP_GRACE_MS;
 
 function _showControllerBanner(cls, html) {
@@ -1165,47 +1174,57 @@ function _showControllerBanner(cls, html) {
   b.style.display = cls ? '' : 'none';
 }
 
-function _clearControllerBanner() {
-  _showControllerBanner('', '');
+function _clearControllerBanner() { _showControllerBanner('', ''); }
+
+function _stopWatcher() {
+  if (_autoRestartWatcher) { clearInterval(_autoRestartWatcher); _autoRestartWatcher = null; }
 }
 
 function _startRecoveryWatcher() {
-  // Already watching or controller came back — don't double-start
-  if (_autoRestartWatcher) return;
-  const deadline = Date.now() + _AUTO_RESTART_TIMEOUT_MS;
+  _stopWatcher();
+  const deadline = Date.now() + _RETRY_INTERVAL_MS;
   _autoRestartWatcher = setInterval(() => {
     if (!_controllerLost) {
-      // Controller is back
-      clearInterval(_autoRestartWatcher);
-      _autoRestartWatcher = null;
-      _autoRestartDone    = false;
+      // Controller is back — clean up everything
+      _stopWatcher();
+      _restartAttempts = 0;
       _clearControllerBanner();
       return;
     }
-    if (Date.now() > deadline) {
-      clearInterval(_autoRestartWatcher);
-      _autoRestartWatcher = null;
-      _showControllerBanner('failed',
-        '<strong>&#9888; Controller could not restart.</strong><br>' +
-        'Please check the controller window or restart it manually using <em>start_controller.bat</em>.');
+    if (Date.now() >= deadline) {
+      _stopWatcher();
+      if (_restartAttempts < _MAX_RETRIES) {
+        // Try again
+        _attemptAutoRestart();
+      } else {
+        // Exhausted all retries
+        _showControllerBanner('failed',
+          '<strong>&#9888; Controller could not restart after ' + _MAX_RETRIES + ' attempts.</strong><br>' +
+          'Please restart it manually by running <em>start_controller.bat</em> or clicking ' +
+          '<em>Restart Controller</em> in the Controls panel.');
+      }
     }
   }, 3000);
 }
 
 async function _attemptAutoRestart() {
+  _restartAttempts++;
+  const attemptLabel = _MAX_RETRIES > 1
+    ? ` (attempt ${_restartAttempts} of ${_MAX_RETRIES})`
+    : '';
   _showControllerBanner('restarting',
-    '<strong>&#8635; Controller went offline — attempting automatic restart…</strong><br>' +
-    'This may take up to 30 seconds. If it does not recover a manual restart may be required.');
+    `<strong>&#8635; Controller went offline — attempting automatic restart${attemptLabel}…</strong><br>` +
+    `Waiting up to ${_RETRY_INTERVAL_MS / 1000} seconds for it to come back.`);
   try {
     const r = await fetch('/api/restart/controller', { method: 'POST' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
+    _startRecoveryWatcher();
   } catch(e) {
+    // Dashboard unreachable — can't restart, show error immediately
     _showControllerBanner('failed',
-      '<strong>&#9888; Auto-restart failed.</strong><br>' +
-      'Could not contact the dashboard restart endpoint. Please restart manually via <em>start_controller.bat</em>.');
-    return;
+      '<strong>&#9888; Auto-restart failed — could not reach the restart endpoint.</strong><br>' +
+      'Please restart manually via <em>start_controller.bat</em>.');
   }
-  _startRecoveryWatcher();
 }
 
 // ── Connection-lost / stale-data indicator ────────────────────────────────────
@@ -1230,18 +1249,14 @@ function _checkStaleness(data) {
     sl.style.color = '#f87171';
     cardsEl.classList.add('stale');
     // Auto-restart unless deliberate or still within the startup grace window
-    if (!_deliberateRestart && !_autoRestartDone && Date.now() > _startupGraceUntil) {
-      _autoRestartDone = true;
+    if (!_deliberateRestart && _restartAttempts === 0 && Date.now() > _startupGraceUntil) {
       _attemptAutoRestart();
     }
   } else if (!isStale && _controllerLost) {
-    _controllerLost = false;
+    _controllerLost    = false;
     _deliberateRestart = false;
-    _autoRestartDone   = false;
-    if (_autoRestartWatcher) {
-      clearInterval(_autoRestartWatcher);
-      _autoRestartWatcher = null;
-    }
+    _restartAttempts   = 0;
+    _stopWatcher();
     sl.style.color = '';
     cardsEl.classList.remove('stale');
     _clearControllerBanner();
