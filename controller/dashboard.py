@@ -644,16 +644,16 @@ async function whitelistAllOnline() {
 function _updateRamWarning(data) {
   const el = document.getElementById('ram-warning-banner');
   if (!el) return;
-  const total    = data.ram_total_gb;
-  const required = data.ram_required_gb;  // running_count * 12 + 15
-  if (total == null || required == null) { el.style.display = 'none'; return; }
-  // Warn when the maps currently running demand more RAM than the system has in total
-  if (required > total) {
-    const running = Math.max(0, (required - 15) / 12);
+  const maxMaps = data.max_concurrent_maps;
+  const total   = data.ram_total_gb;
+  if (!maxMaps || total == null) { el.style.display = 'none'; return; }
+  const running = Object.values(data.servers || {}).filter(s => s.is_running || s.is_starting).length;
+  // Warn when at capacity — the system RAM can't comfortably handle another map
+  if (running >= maxMaps) {
     el.style.display = 'block';
-    el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${running} running map(s) require ` +
-      `${required} GB (12 GB/map + 15 GB overhead) but system only has ` +
-      `${total.toFixed(1)} GB total. Servers may crash or fail to start.`;
+    el.innerHTML = `&#9888; <strong>RAM at capacity:</strong> ${running} of ${maxMaps} map(s) running ` +
+      `(${total.toFixed(1)} GB total &minus; 15 GB overhead &divide; 12 GB per map). ` +
+      `Starting another map may cause crashes.`;
   } else {
     el.style.display = 'none';
   }
