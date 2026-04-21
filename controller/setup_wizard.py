@@ -3,6 +3,7 @@ setup_wizard.py — First-run (or re-run) configuration wizard.
 Writes config.ini in the same directory.
 """
 
+import ctypes
 import io
 import os
 import re
@@ -16,6 +17,34 @@ import configparser
 from pathlib import Path
 
 CONFIG_PATH      = Path(__file__).resolve().parent / "config.ini"
+
+
+def _wizard_ram_max_maps() -> int:
+    """Return the RAM-based suggested max concurrent maps: floor((total_gb - 15) / 12), min 1."""
+    try:
+        class _MEMSTATEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength",                ctypes.c_ulong),
+                ("dwMemoryLoad",            ctypes.c_ulong),
+                ("ullTotalPhys",            ctypes.c_ulonglong),
+                ("ullAvailPhys",            ctypes.c_ulonglong),
+                ("ullTotalPageFile",        ctypes.c_ulonglong),
+                ("ullAvailPageFile",        ctypes.c_ulonglong),
+                ("ullTotalVirtual",         ctypes.c_ulonglong),
+                ("ullAvailVirtual",         ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+        stat = _MEMSTATEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        total_gb = stat.ullTotalPhys / (1024 ** 3)
+        if total_gb > 15:
+            return max(1, int((total_gb - 15) / 12))
+    except Exception:
+        pass
+    return 3
+
+
 _STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
 _ASA_APP_ID   = "2430930"
 
@@ -258,18 +287,21 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     # ── Performance ───────────────────────────────────────
     print("[ Performance ]")
     print()
-    print("  Each active map requires roughly 10 GB of free RAM.")
-    print("  Make sure your machine has enough before increasing this limit.")
+    _ram_suggested = _wizard_ram_max_maps()
+    print(f"  Each active map requires roughly 12 GB of RAM, plus 15 GB overhead.")
+    print(f"  Based on your system RAM, the suggested maximum is {_ram_suggested} map(s).")
+    print(f"  You can set a lower value; setting a higher value is not recommended.")
     print()
 
+    _prev_max = int(prev_get("limits", "max_active_servers", str(_ram_suggested)))
     max_active = _ask_int(
         "Maximum simultaneously active maps",
-        default=int(prev_get("performance", "max_active_servers", "3")),
+        default=min(_prev_max, _ram_suggested),
         min_val=1,
         max_val=len(MAPS),
     )
-    ram_needed = max_active * 10
-    print(f"  → You will need at least {ram_needed} GB of RAM for {max_active} active map(s).")
+    ram_needed = max_active * 12 + 15
+    print(f"  → You will need at least {ram_needed} GB of RAM for {max_active} active map(s) + overhead.")
     print()
 
     max_players = _ask_int(

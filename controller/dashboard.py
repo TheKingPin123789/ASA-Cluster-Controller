@@ -1826,6 +1826,18 @@ def get_seen_players():
         return jsonify({"players": {}, "error": str(exc)})
 
 
+def _ram_max_maps_default() -> str:
+    """Return the RAM-based max concurrent maps as a string, for use in /api/defaults."""
+    try:
+        with open(STATUS_JSON, encoding="utf-8") as _sf:
+            ram_max = json.load(_sf).get("ram_max_maps")
+        if ram_max is not None:
+            return str(ram_max)
+    except Exception:
+        pass
+    return "3"
+
+
 @app.route("/api/defaults")
 @login_required
 def get_defaults():
@@ -1845,7 +1857,7 @@ def get_defaults():
             "steamcmd_path": r"C:\ASA_Cluster\SteamCMD\steamcmd.exe",
         },
         "limits": {
-            "max_active_servers": "3",
+            "max_active_servers": _ram_max_maps_default(),
             "max_players": "70",
             "max_tamed_dinos": "5000",
             "max_personal_tamed_dinos": "40",
@@ -2355,7 +2367,7 @@ async function load() {
       document.getElementById('notice').style.display = 'block';
     }
   } catch(e) { console.error('Settings load error:', e); }
-  // Fetch RAM limit so we can validate max_active_servers before saving
+  // Fetch RAM limit so we can validate max_active_servers and set its placeholder
   try {
     const sr = await apiFetch('/api/status');
     if (sr && sr.ok) {
@@ -2365,6 +2377,11 @@ async function load() {
   } catch(e) {}
   buildTabBar();
   render(data);
+  // Update the max_active_servers placeholder to reflect the RAM-based suggestion
+  if (_ramMaxMaps) {
+    const inp = document.querySelector('input[data-s="limits"][data-k="max_active_servers"]');
+    if (inp) inp.placeholder = _ramMaxMaps;
+  }
   wireBreedingHints();
   wireDiscordToggle();
 }
