@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import shutil
 import signal
 import hashlib
 import logging
