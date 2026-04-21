@@ -650,10 +650,12 @@ function _updateRamWarning(data) {
   const running = Object.values(data.servers || {}).filter(s => s.is_running || s.is_starting).length;
   // Warn when at capacity — the system RAM can't comfortably handle another map
   if (running >= maxMaps) {
+    const avail = data.ram_available_gb != null ? data.ram_available_gb.toFixed(1) + ' GB' : '? GB';
+    const used  = running * 12 + 15;
     el.style.display = 'block';
-    el.innerHTML = `&#9888; <strong>RAM at capacity:</strong> ${running} of ${maxMaps} map(s) running ` +
-      `(${total.toFixed(1)} GB total &minus; 15 GB overhead &divide; 12 GB per map). ` +
-      `Starting another map may cause crashes.`;
+    el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${avail} available, ` +
+      `${running} of ${maxMaps} map(s) + 15 GB overhead = ${used} GB. ` +
+      `Servers may crash or fail to start.`;
   } else {
     el.style.display = 'none';
   }
