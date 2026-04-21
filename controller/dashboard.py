@@ -2342,6 +2342,8 @@ function wireDiscordToggle() {
   }
 }
 
+let _ramMaxMaps = null;
+
 async function load() {
   let data = {};
   try {
@@ -2353,6 +2355,14 @@ async function load() {
       document.getElementById('notice').style.display = 'block';
     }
   } catch(e) { console.error('Settings load error:', e); }
+  // Fetch RAM limit so we can validate max_active_servers before saving
+  try {
+    const sr = await apiFetch('/api/status');
+    if (sr && sr.ok) {
+      const sd = await sr.json();
+      if (sd.ram_max_maps != null) _ramMaxMaps = sd.ram_max_maps;
+    }
+  } catch(e) {}
   buildTabBar();
   render(data);
   wireBreedingHints();
@@ -2406,10 +2416,10 @@ async function save() {
       setTimeout(reset, 2000);
     } else {
       const body = await r.json().catch(() => ({}));
-      btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
-      if (body.error) alert('Save failed:\n\n' + body.error);
+      const msg = body.error || ('HTTP ' + r.status);
+      alert('Save failed:\n\n' + msg);
       console.error('Settings save failed:', r.status, body);
-      setTimeout(reset, 2500);
+      reset();
     }
   } catch (e) {
     btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
