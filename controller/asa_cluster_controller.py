@@ -77,7 +77,7 @@ HOST           = _ci("network", "rcon_host",     "127.0.0.1")
 DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "ragnarok")
 
 # ── Limits (formerly [performance]) ───────────────────────────────────────────
-MAX_ACTIVE_SERVERS       = _ci_int("limits", "max_active_servers",    3)
+_USER_MAX_ACTIVE_SERVERS = _ci_int("limits", "max_active_servers",    0)  # 0 = auto from RAM
 MAX_PLAYERS              = _ci_int("limits", "max_players",           70)
 MAX_TAMED_DINOS          = _ci_int("limits", "max_tamed_dinos",       5000)
 MAX_PERSONAL_TAMED_DINOS = _ci_int("limits", "max_personal_tamed_dinos", 40)
@@ -1269,8 +1269,9 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
             announce(origin, f"{state.cfg.display_name} is already online or starting.")
             return
         active = len(active_servers())
-        if active >= MAX_ACTIVE_SERVERS:
-            announce(origin, f"Max servers active ({active}/{MAX_ACTIVE_SERVERS})")
+        _limit = _get_effective_max_servers()
+        if active >= _limit:
+            announce(origin, f"Max servers active ({active}/{_limit}) — not enough RAM to start another")
             return
         start_server(requested)
         announce(origin, f"{state.cfg.display_name} is starting up — give it a few minutes.")
@@ -1845,8 +1846,9 @@ def handle_admin_command(command: str) -> None:
             return
 
         active = len(active_servers())
-        if active >= MAX_ACTIVE_SERVERS:
-            log(f"Max servers active ({active}/{MAX_ACTIVE_SERVERS})")
+        _limit = _get_effective_max_servers()
+        if active >= _limit:
+            log(f"Max servers active ({active}/{_limit}) — not enough RAM to start another")
             return
 
         if not start_server(requested):
@@ -2432,6 +2434,20 @@ def _get_ram_gb() -> tuple:
         return None, None
 
 
+def _get_effective_max_servers() -> int:
+    """Auto-calculate concurrent map limit from total RAM (12 GB/map + 20 GB overhead).
+    If the user sets max_active_servers > 0 in config it is used as an additional
+    lower cap — they can never exceed what the RAM supports."""
+    total, _ = _get_ram_gb()
+    if total and total > 20:
+        ram_limit = max(1, int((total - 20) / 12))
+    else:
+        ram_limit = len(SERVER_STATES)  # RAM unknown — don't block
+    if _USER_MAX_ACTIVE_SERVERS > 0:
+        return min(_USER_MAX_ACTIVE_SERVERS, ram_limit)
+    return ram_limit
+
+
 def write_cluster_status() -> None:
     total_players = sum(state.player_count for state in SERVER_STATES.values())
     running = [state.cfg.key for state in SERVER_STATES.values() if state.is_running]
@@ -2517,6 +2533,7 @@ def write_cluster_status() -> None:
         "ram_total_gb": ram_total,
         "ram_available_gb": ram_available,
         "ram_required_gb": ram_required,
+        "max_concurrent_maps": _get_effective_max_servers(),
         "timestamp": now,
     }
 

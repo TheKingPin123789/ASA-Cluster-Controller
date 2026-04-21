@@ -644,16 +644,16 @@ async function whitelistAllOnline() {
 function _updateRamWarning(data) {
   const el = document.getElementById('ram-warning-banner');
   if (!el) return;
-  const avail    = data.ram_available_gb;
-  const required = data.ram_required_gb;
   const total    = data.ram_total_gb;
-  if (avail == null || required == null) { el.style.display = 'none'; return; }
-  if (avail < required) {
+  const required = data.ram_required_gb;  // running_count * 12 + 20
+  if (total == null || required == null) { el.style.display = 'none'; return; }
+  // Warn when the maps currently running demand more RAM than the system has in total
+  if (required > total) {
+    const running = Math.max(0, (required - 20) / 12);
     el.style.display = 'block';
-    el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${avail.toFixed(1)} GB available, ` +
-      `${required} GB needed for ${Math.max(0, (required - 20) / 12)} running map(s) + 20 GB overhead ` +
-      `(${total != null ? total.toFixed(1) + ' GB total' : 'total unknown'}). ` +
-      `Servers may crash or fail to start.`;
+    el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${running} running map(s) require ` +
+      `${required} GB (12 GB/map + 20 GB overhead) but system only has ` +
+      `${total.toFixed(1)} GB total. Servers may crash or fail to start.`;
   } else {
     el.style.display = 'none';
   }
@@ -1186,8 +1186,9 @@ function renderCards(data) {
   document.getElementById('cluster-offline-banner').style.display = anyActive ? 'none' : '';
 
   const runCount = Object.values(data.servers).filter(s => s.is_running).length;
+  const maxMaps = data.max_concurrent_maps ? ` / ${data.max_concurrent_maps} max` : '';
   document.getElementById('status-line').textContent =
-    runCount + ' server(s) online \u00b7 ' + (data.total_players||0) + ' player(s)';
+    runCount + maxMaps + ' server(s) online \u00b7 ' + (data.total_players||0) + ' player(s)';
 
   const container = document.getElementById('cards');
   for (const [key, s] of Object.entries(data.servers)) {
