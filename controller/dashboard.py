@@ -641,7 +641,10 @@ async function whitelistAllOnline() {
 }
 
 // ── RAM warning ───────────────────────────────────────────────────────────────
+let _ramMaxMaps = null;  // raw RAM-based limit, updated each poll
+
 function _updateRamWarning(data) {
+  if (data.ram_max_maps != null) _ramMaxMaps = data.ram_max_maps;
   const el = document.getElementById('ram-warning-banner');
   if (!el) return;
   const maxMaps = data.max_concurrent_maps;
@@ -1684,6 +1687,25 @@ def post_settings():
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
+    # Validate max_active_servers against the RAM-based hard limit
+    try:
+        requested_max = int(data.get("limits", {}).get("max_active_servers", 0) or 0)
+        if requested_max > 0:
+            ram_max = None
+            try:
+                with open(STATUS_JSON, encoding="utf-8") as _sf:
+                    ram_max = json.load(_sf).get("ram_max_maps")
+            except Exception:
+                pass
+            if ram_max is not None and requested_max > ram_max:
+                return jsonify({
+                    "error": f"max_active_servers cannot exceed {ram_max} — "
+                             f"your system RAM only supports {ram_max} map(s) "
+                             f"(15 GB overhead + 12 GB per map)."
+                }), 400
+    except (ValueError, TypeError):
+        pass
+
     for section, kvs in data.items():
         if not cfg.has_section(section):
             cfg.add_section(section)
@@ -2358,6 +2380,19 @@ async function save() {
       payload[s][k] = i.value !== '' ? i.value : i.placeholder;
     }
   });
+  // Validate max_active_servers before sending
+  const requestedMax = parseInt((payload.limits || {}).max_active_servers || '0', 10);
+  if (_ramMaxMaps && requestedMax > 0 && requestedMax > _ramMaxMaps) {
+    btn.textContent = 'Save Settings'; btn.disabled = false;
+    alert(
+      `Cannot set Max Active Maps to ${requestedMax}.\n\n` +
+      `Your system RAM only supports ${_ramMaxMaps} map(s) ` +
+      `(15 GB overhead + 12 GB per map).\n\n` +
+      `Set a value between 1 and ${_ramMaxMaps}, or leave it at 0 for automatic.`
+    );
+    return;
+  }
+
   const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };
   try {
     const r = await apiFetch('/api/settings', {
@@ -2372,6 +2407,7 @@ async function save() {
     } else {
       const body = await r.json().catch(() => ({}));
       btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
+      if (body.error) alert('Save failed:\n\n' + body.error);
       console.error('Settings save failed:', r.status, body);
       setTimeout(reset, 2500);
     }

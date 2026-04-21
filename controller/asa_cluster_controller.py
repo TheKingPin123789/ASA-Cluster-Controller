@@ -2534,6 +2534,7 @@ def write_cluster_status() -> None:
         "ram_available_gb": ram_available,
         "ram_required_gb": ram_required,
         "max_concurrent_maps": _get_effective_max_servers(),
+        "ram_max_maps": max(1, int((ram_total - 15) / 12)) if ram_total and ram_total > 15 else None,
         "timestamp": now,
     }
 
