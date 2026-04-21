@@ -649,7 +649,7 @@ function _updateRamWarning(data) {
   const total    = data.ram_total_gb;
   if (avail == null || required == null) { el.style.display = 'none'; return; }
   if (avail < required) {
-    el.style.display = '';
+    el.style.display = 'block';
     el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${avail.toFixed(1)} GB available, ` +
       `${required} GB needed for ${Math.max(0, (required - 20) / 12)} running map(s) + 20 GB overhead ` +
       `(${total != null ? total.toFixed(1) + ' GB total' : 'total unknown'}). ` +
