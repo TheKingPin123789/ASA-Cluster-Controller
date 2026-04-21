@@ -339,7 +339,6 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
       <span id="status-line">Connecting...</span>
       <span id="restart-timer" style="font-size:14px; font-family:Consolas,monospace;"></span>
-      <span id="update-age" style="font-size:11px; color:#4b5563;"></span>
     </div>
     <button onclick="openSettings()" title="Settings"
             style="background:none; border:none; cursor:pointer; font-size:20px; color:#6b7280; line-height:1; padding:2px 4px; border-radius:4px;"
@@ -613,15 +612,6 @@ function _checkPlayerChanges(data) {
   _prevPlayers  = current;
   _initialPoll  = false;
 }
-
-// ── Last-updated indicator ────────────────────────────────────────────────────
-let _lastPollTime = 0;
-setInterval(() => {
-  const el = document.getElementById('update-age');
-  if (!el || !_lastPollTime) return;
-  const s = Math.floor((Date.now() - _lastPollTime) / 1000);
-  el.textContent = 'Updated ' + s + 's ago';
-}, 1000);
 
 // ── Command debounce ──────────────────────────────────────────────────────────
 let _lastCmdStr  = '';
@@ -1443,7 +1433,6 @@ async function pollStatus() {
     const data = await r.json();
     if (data.error) { _markPollFail(); return; }
     _markPollOk();
-    _lastPollTime = Date.now();
     _checkStaleness(data);
     _checkPlayerChanges(data);
     _updateRamWarning(data);
