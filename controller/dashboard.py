@@ -645,14 +645,14 @@ function _updateRamWarning(data) {
   const el = document.getElementById('ram-warning-banner');
   if (!el) return;
   const total    = data.ram_total_gb;
-  const required = data.ram_required_gb;  // running_count * 12 + 20
+  const required = data.ram_required_gb;  // running_count * 12 + 15
   if (total == null || required == null) { el.style.display = 'none'; return; }
   // Warn when the maps currently running demand more RAM than the system has in total
   if (required > total) {
-    const running = Math.max(0, (required - 20) / 12);
+    const running = Math.max(0, (required - 15) / 12);
     el.style.display = 'block';
     el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${running} running map(s) require ` +
-      `${required} GB (12 GB/map + 20 GB overhead) but system only has ` +
+      `${required} GB (12 GB/map + 15 GB overhead) but system only has ` +
       `${total.toFixed(1)} GB total. Servers may crash or fail to start.`;
   } else {
     el.style.display = 'none';

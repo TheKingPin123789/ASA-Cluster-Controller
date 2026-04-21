@@ -2435,12 +2435,12 @@ def _get_ram_gb() -> tuple:
 
 
 def _get_effective_max_servers() -> int:
-    """Auto-calculate concurrent map limit from total RAM (12 GB/map + 20 GB overhead).
+    """Auto-calculate concurrent map limit from total RAM (12 GB/map + 15 GB overhead).
     If the user sets max_active_servers > 0 in config it is used as an additional
     lower cap — they can never exceed what the RAM supports."""
     total, _ = _get_ram_gb()
-    if total and total > 20:
-        ram_limit = max(1, int((total - 20) / 12))
+    if total and total > 15:
+        ram_limit = max(1, int((total - 15) / 12))
     else:
         ram_limit = len(SERVER_STATES)  # RAM unknown — don't block
     if _USER_MAX_ACTIVE_SERVERS > 0:
@@ -2515,8 +2515,8 @@ def write_cluster_status() -> None:
     running_map_count = sum(
         1 for s in SERVER_STATES.values() if s.is_running or s.is_starting
     )
-    # 12 GB per running/starting map + 20 GB for OS and other services
-    ram_required = running_map_count * 12 + 20
+    # 12 GB per running/starting map + 15 GB for OS and other services
+    ram_required = running_map_count * 12 + 15
 
     payload = {
         "cluster_name": CLUSTER_NAME,
