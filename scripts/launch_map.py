@@ -227,6 +227,7 @@ def main() -> None:
     crossplay     = _g(cfg, "mods", "crossplay",                 "false").lower() == "true"
     mod_ids       = _g(cfg, "mods", "mod_ids",                   "").strip()
     active_event  = _g(cfg, "world","active_event",              "").strip()
+    public_ip     = _g(cfg, "network","public_ip",               "").strip()
 
     exe = os.path.join(server_root, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
     if not os.path.exists(exe):
@@ -268,6 +269,7 @@ def main() -> None:
     if crossplay:    flags.append("-crossplay")
     if mod_ids:      flags.append(f"-GameModIds={mod_ids}")
     if active_event: flags.append(f"-ActiveEvent={active_event}")
+    if public_ip:    flags.append(f"-PublicIPForSteam={public_ip}")
 
     print(f"Launching {display}...")
     print(f"  Session : {session_name}")
