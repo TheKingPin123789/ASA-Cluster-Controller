@@ -2283,7 +2283,6 @@ function render(data) {
       else wrap.className = 'stack';
       for (const f of sec.fields) {
         const saved = (data[f.s] || {})[f.k] || '';
-        const ph    = saved || f.ph || '';
         const d = document.createElement('div');
         let cls = 'field' + (f.wide ? ' wide' : '');
         if (f.visGroup) cls += ' vis-group-' + f.visGroup;
@@ -2314,10 +2313,14 @@ function render(data) {
         } else if (f.type === 'info') {
           d.innerHTML = `<div class="info-box">${f.html}</div>`;
         } else {
-          // Field is always empty — placeholder shows the current config value
+          // Non-checkbox field: pre-fill value with the current config value so the
+          // user can see what is set; fall back to the schema default as placeholder.
           const inputType = f.type === 'password' ? 'password' : 'text';
           const autoComp  = f.type === 'password' ? 'new-password' : 'off';
-          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+          // Password fields stay empty — user must retype to change
+          const inputVal  = f.type === 'password' ? '' : esc(saved);
+          const inputPh   = esc(f.ph || '');
+          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="${inputVal}" placeholder="${inputPh}">${hint}`;
         }
         wrap.appendChild(d);
       }
@@ -2330,9 +2333,7 @@ function render(data) {
 function updateBreedHints() {
   const msInput = document.querySelector('input[data-s="breeding"][data-k="baby_mature_speed_multiplier"]');
   if (!msInput) return;
-  // Fall back to the placeholder (= current config value) when the field is untouched
-  const msRaw = msInput.value !== '' ? msInput.value : msInput.placeholder;
-  const ms = parseFloat(msRaw) || 1.0;
+  const ms = parseFloat(msInput.value) || 1.0;
   const recs = {
     interval: ms > 0 ? (1.8 / ms).toFixed(4) : '1.8000',
     grace:    Math.max(5.0, ms / 10).toFixed(1),
@@ -2545,10 +2546,9 @@ async function save() {
       // Only include password fields when the user actually typed something
       if (i.value !== '') payload[s][k] = i.value;
     } else {
-      // Use !== '' so a user can intentionally clear a field (e.g. mod_ids,
-      // active_event, restart_time). Only fall back to placeholder when the
-      // field is completely untouched (empty because we never set i.value).
-      payload[s][k] = i.value !== '' ? i.value : i.placeholder;
+      // Fields are pre-filled with the current config value on load, so i.value
+      // always reflects the intended setting (edited, cleared, or untouched).
+      payload[s][k] = i.value;
     }
   });
 
