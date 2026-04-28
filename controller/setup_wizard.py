@@ -259,7 +259,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     default_map = _ask_choice(
         "Default map (always kept running)",
         MAPS,
-        prev_get("cluster", "default_map", "ragnarok"),
+        prev_get("cluster", "default_map", "theisland"),
     )
     print()
 

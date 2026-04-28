@@ -1888,7 +1888,7 @@ def get_defaults():
     return jsonify({
         "cluster": {
             "cluster_name": "MyCluster",
-            "default_map": "ragnarok",
+            "default_map": "theisland",
         },
         "network": {
             "rcon_host": "127.0.0.1",
@@ -2064,7 +2064,7 @@ const SCHEMA = [
   { group:'Cluster', sections:[
     { title:'Identity', fields:[
       {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'MyCluster'},
-      {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
+      {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'theisland'},
       {s:'network',    k:'rcon_host',      label:'RCON Host',           ph:'127.0.0.1'},
       {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
     ]},
