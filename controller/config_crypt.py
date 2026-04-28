@@ -54,9 +54,12 @@ def decrypt_cfg_value(value: str) -> str:
     try:
         return _get_fernet().decrypt(value[len(_ENC_PREFIX):].encode()).decode()
     except Exception:
-        # Decryption failed (wrong machine, corrupted value) — return as-is
-        # so the caller at least gets something rather than crashing
-        return value
+        # Decryption failed — likely config.ini was copied from another machine.
+        # Return empty string so the caller gets a clear auth failure rather than
+        # silently using the "ENC:..." string as a literal password.
+        print(f"WARNING: config_crypt — failed to decrypt a config value. "
+              f"If you copied config.ini from another machine, re-run setup_wizard.py.")
+        return ""
 
 
 def decrypt_config(cfg) -> None:

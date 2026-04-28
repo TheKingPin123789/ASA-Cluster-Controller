@@ -2093,10 +2093,15 @@ def update_running_status(state: ServerState) -> None:
         # are already in-game. ListPlayers is too unreliable in ASA for this.
         if just_came_online:
             sync_players_from_game_log(state)
-            # sync_players_from_game_log overwrites player_count (via the log)
-            # but not player_list (from ListPlayers). Re-align player_count so
-            # the dashboard card and the player list always agree.
-            state.player_count = len(state.player_list)
+            # sync_players_from_game_log is the authoritative source — rebuild
+            # player_list from the confirmed state.players set so the dashboard
+            # card and player list always agree with the log-based count.
+            known = {p["id"]: p["name"] for p in state.player_list if p.get("id")}
+            state.player_list = [
+                {"id": pid, "name": known.get(pid, "Unknown")}
+                for pid in state.players
+            ]
+            state.player_count = len(state.players)
 
         if just_came_online and state.pending_online_announcement:
             announce_all_online(f"{state.cfg.display_name} is up and running")
@@ -2456,7 +2461,7 @@ class _MEMSTATEX(ctypes.Structure):
         ("ullAvailPageFile",         ctypes.c_ulonglong),
         ("ullTotalVirtual",          ctypes.c_ulonglong),
         ("ullAvailVirtual",          ctypes.c_ulonglong),
-        ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
     ]
 
 

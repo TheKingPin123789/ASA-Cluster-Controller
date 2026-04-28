@@ -217,7 +217,7 @@ def main() -> None:
     except Exception:
         pass
 
-    server_root   = _g2(cfg,"paths","server_root",       r"C:\ASA_Cluster\asa_server","paths")
+    server_root   = _g(cfg, "paths","server_root",        r"C:\ARK_ASA_Server\asa_server")
     cluster_dir   = _g(cfg, "paths","cluster_dir",       os.path.join(server_root,"cluster"))
     cluster_name  = _g(cfg, "cluster","cluster_name",    "MyCluster")
     cluster_id    = cluster_name.replace(" ","") + "Cluster"

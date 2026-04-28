@@ -1729,7 +1729,10 @@ def post_settings():
         pass
     # Validate max_active_servers against the RAM-based hard limit
     try:
-        requested_max = int(data.get("limits", {}).get("max_active_servers", 0) or 0)
+        _limits_section = data.get("limits", {})
+        if not isinstance(_limits_section, dict):
+            _limits_section = {}
+        requested_max = int(_limits_section.get("max_active_servers", 0) or 0)
         if requested_max > 0:
             ram_max = None
             try:
