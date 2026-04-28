@@ -9,6 +9,7 @@ import secrets
 import subprocess
 import configparser
 from functools import wraps
+from config_crypt import decrypt_config, encrypt_cfg_value, SENSITIVE_KEYS
 from flask import Flask, jsonify, request, render_template_string, session, redirect, url_for
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
@@ -42,25 +43,27 @@ def _get_auth_cfg():
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
+    decrypt_config(cfg)
     return cfg
 
 
 def _ensure_secret_key() -> str:
     """Return the session secret key, auto-generating and saving it if missing."""
+    from config_crypt import decrypt_cfg_value, encrypt_cfg_value
     cfg = configparser.RawConfigParser()
     try:
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
     if cfg.has_option("auth", "secret_key"):
-        key = cfg.get("auth", "secret_key").strip()
-        if key:
-            return key
-    # Generate a new key and persist it
+        raw = cfg.get("auth", "secret_key").strip()
+        if raw:
+            return decrypt_cfg_value(raw)  # decrypt ENC: if present
+    # Generate a new key and persist it encrypted
     key = secrets.token_hex(32)
     if not cfg.has_section("auth"):
         cfg.add_section("auth")
-    cfg.set("auth", "secret_key", key)
+    cfg.set("auth", "secret_key", encrypt_cfg_value(key))
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             cfg.write(f)
@@ -70,7 +73,25 @@ def _ensure_secret_key() -> str:
 
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using PBKDF2-SHA256 with a random salt.
+    Format: pbkdf2:<salt_hex>:<hash_hex>"""
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return f"pbkdf2:{salt.hex()}:{key.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """Verify a password against a stored hash (PBKDF2 or legacy SHA256)."""
+    if stored.startswith("pbkdf2:"):
+        try:
+            _, salt_hex, hash_hex = stored.split(":", 2)
+            salt = bytes.fromhex(salt_hex)
+            key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+            return key.hex() == hash_hex
+        except Exception:
+            return False
+    # Legacy SHA256 — still accepts old hashes but dashboard will prompt re-save via wizard
+    return hashlib.sha256(password.encode()).hexdigest() == stored
 
 
 def _check_credentials(username: str, password: str) -> bool:
@@ -82,7 +103,7 @@ def _check_credentials(username: str, password: str) -> bool:
         # This protects against config corruption resetting access to 'admin'.
         # Run reset_password.bat (or restart the dashboard fresh) to restore defaults.
         return False
-    return username == stored_user and _hash_password(password) == stored_hash
+    return username == stored_user and _verify_password(password, stored_hash)
 
 
 def _auth_enabled() -> bool:
@@ -1202,9 +1223,11 @@ function renderCards(data) {
     const players = s.is_running ? s.player_count + ' / ' + (data.max_players || 70) + ' player(s)' : '';
     const uptime  = s.is_running ? fmtUptime(s.online_since) : '';
     const dn      = s.display_name;
-    const crashBadge = (s.crash_restart_count > 0)
-      ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
-      : '';
+    const crashBadge = s.crash_limit_reached
+      ? `<span title="Crash limit reached — manual restart required" style="font-size:11px;color:#f87171;margin-left:4px;font-weight:700;">&#9888; Crash limit hit</span>`
+      : (s.crash_restart_count > 0)
+        ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
+        : '';
     // Per-server stop countdown — shown when an admin has scheduled a map shutdown
     const stopMins = (s.manual_stop_in != null)
       ? Math.ceil(s.manual_stop_in / 60)
@@ -1670,11 +1693,17 @@ def get_settings():
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
+    decrypt_config(cfg)
     result = {section: dict(cfg.items(section)) for section in cfg.sections()}
     # Strip sensitive auth fields — never send hashed password or secret key to browser
     if "auth" in result:
         result["auth"].pop("password_hash", None)
         result["auth"].pop("secret_key",    None)
+    # Also strip other sensitive fields so they don't appear in the settings UI
+    for section in result.values():
+        for key in list(section):
+            if key in SENSITIVE_KEYS:
+                section.pop(key, None)
     return jsonify(result)
 
 
@@ -1711,15 +1740,13 @@ def post_settings():
             cfg.add_section(section)
         for key, value in kvs.items():
             # Block sensitive auth fields — must never be set directly via the API
-            if section == "auth" and key in ("password_hash", "secret_key"):
+            if section == "auth" and key in ("password_hash", "secret_key", "new_password"):
                 continue
-            # new_password is a UI-only field — hash it and store as password_hash
-            if section == "auth" and key == "new_password":
-                if str(value).strip():
-                    cfg.set("auth", "password_hash", _hash_password(str(value).strip()))
-                # Never persist the plaintext new_password field
-                continue
-            cfg.set(section, key, str(value))
+            str_val = str(value)
+            # Encrypt sensitive fields before writing to disk
+            if key in SENSITIVE_KEYS and str_val:
+                str_val = encrypt_cfg_value(str_val)
+            cfg.set(section, key, str_val)
     try:
         # Back up the current config before overwriting so bad settings can be recovered
         if os.path.exists(CONFIG_FILE):
@@ -2027,8 +2054,7 @@ const SCHEMA = [
       {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
     ]},
     { title:'Dashboard Login', fields:[
-      {s:'auth', k:'username',      label:'Username',         ph:'admin',   hint:'Login username for the dashboard'},
-      {s:'auth', k:'new_password',  label:'New Password',     ph:'',        type:'password', hint:'Leave blank to keep current password — fill in to change it'},
+      {s:'auth', k:'username', label:'Username', ph:'admin', hint:'Login username — change password via the Setup Wizard (setup_wizard.py)'},
     ]},
     { title:'Paths', fields:[
       {s:'paths', k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',              wide:true},

@@ -209,6 +209,13 @@ def main() -> None:
 
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
+    # Decrypt any ENC: fields so launch args get plaintext values
+    sys.path.insert(0, os.path.join(os.path.dirname(CONFIG_PATH)))
+    try:
+        from config_crypt import decrypt_config
+        decrypt_config(cfg)
+    except Exception:
+        pass
 
     server_root   = _g2(cfg,"paths","server_root",       r"C:\ASA_Cluster\asa_server","paths")
     cluster_dir   = _g(cfg, "paths","cluster_dir",       os.path.join(server_root,"cluster"))

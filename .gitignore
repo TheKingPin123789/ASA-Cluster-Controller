@@ -1,4 +1,5 @@
 config.ini
+config.ini.bak
 whitelist.txt
 whitelist_disabled.flag
 cluster_status.txt
@@ -11,11 +12,13 @@ restart_maps.txt
 controller.stop
 __pycache__/
 *.pyc
+*.pid
 .claude/
 seen_players.json
 allowed_commands.txt
 command_categories.json
 admin_list.txt
+logs/
 SteamCMD/
 asa_server/
 backups/

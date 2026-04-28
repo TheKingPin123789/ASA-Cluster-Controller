@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from setup_wizard import prompt_setup_on_startup
+from config_crypt import decrypt_config
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
@@ -42,6 +43,7 @@ CONTROLLER_PID_FILE      = os.path.join(BASE_DIR, "controller.pid")
 
 # ── Load config (wizard runs here if needed) ──────────────
 _cfg = prompt_setup_on_startup()
+decrypt_config(_cfg)   # decrypt ENC: fields in-memory (never writes back)
 
 def _ci(section: str, key: str, fallback: str = "") -> str:
     try:
@@ -302,6 +304,8 @@ class ServerState:
     # True only when the server went offline due to a crash (not a manual stop)
     # — guards the cooldown-retry so intentional shutdowns don't auto-restart
     crash_offline: bool = False
+    # Set when crash_restart_count hits the max — cleared on manual restart
+    crash_limit_reached: bool = False
     # PID of the last Popen'd server process — used to force-kill on shutdown
     process_pid: int = 0
 
@@ -342,7 +346,24 @@ def _rotate_log() -> None:
             pass
 
 
+_last_log_rotate_day: Optional[int] = None
+
+def _maybe_rotate_log_daily() -> None:
+    """If no scheduled restart is configured, rotate the log once per calendar day."""
+    global _last_log_rotate_day
+    if RESTART_TIME:
+        return  # scheduled restart handles rotation via controller reboot
+    today = time.localtime().tm_yday
+    if _last_log_rotate_day is None:
+        _last_log_rotate_day = today
+        return
+    if today != _last_log_rotate_day:
+        _last_log_rotate_day = today
+        _rotate_log()
+
+
 def log(msg: str) -> None:
+    _maybe_rotate_log_daily()
     line = f"[{time.strftime('%H:%M:%S')}] {msg}"
     print(line, flush=True)
     target = ADMIN_LOG_FILE if _is_admin_context else LOG_FILE
@@ -723,6 +744,7 @@ def _read_live_cfg() -> configparser.RawConfigParser:
         c.read(os.path.join(BASE_DIR, "config.ini"), encoding="utf-8")
     except Exception:
         pass
+    decrypt_config(c)
     return c
 
 
@@ -1159,6 +1181,7 @@ def stop_server_safe(state: ServerState, reason: str) -> None:
     state.last_crash_restart_at  = None
     state.crash_window_start     = None
     state.crash_restart_count    = 0
+    state.crash_limit_reached    = False
 
 
 def split_chat_sender_and_message(line: str):
@@ -2138,6 +2161,7 @@ def update_running_status(state: ServerState) -> None:
                 log(f"CRASH LIMIT REACHED: {state.cfg.key} has crashed "
                     f"{state.crash_restart_count}x in the last "
                     f"{int(_window // 60)} min — staying offline")
+                state.crash_limit_reached = True
                 announce_all_online(
                     f"{state.cfg.display_name} has crashed too many times and will stay offline")
                 if _dc_flag("notify_crash_events"):
@@ -2481,6 +2505,7 @@ def write_cluster_status() -> None:
             "pending_restart": state.pending_restart,
             "player_list": state.player_list,
             "crash_restart_count": state.crash_restart_count,
+            "crash_limit_reached": state.crash_limit_reached,
             "online_since": state.online_since,
         }
 

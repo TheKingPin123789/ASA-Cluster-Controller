@@ -15,6 +15,7 @@ import urllib.request
 import zipfile
 import configparser
 from pathlib import Path
+from config_crypt import encrypt_cfg_value, decrypt_cfg_value
 
 CONFIG_PATH      = Path(__file__).resolve().parent / "config.ini"
 
@@ -141,7 +142,11 @@ def _ask_password_optional() -> str:
 
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using PBKDF2-SHA256 with a random salt.
+    Format: pbkdf2:<salt_hex>:<hash_hex>"""
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return f"pbkdf2:{salt.hex()}:{key.hex()}"
 
 
 def _download_steamcmd(steamcmd_exe: str) -> bool:
@@ -512,7 +517,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     cfg["cluster"] = {
         "cluster_name": cluster_name,
         "cluster_id": cluster_id,
-        "rcon_password": rcon_password,
+        "rcon_password": encrypt_cfg_value(rcon_password),
         "default_map": default_map,
     }
     cfg["network"] = {
@@ -634,7 +639,8 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
             "password_hash": dash_password_hash,
             # Preserve the existing secret_key so active browser sessions survive a
             # wizard re-run. The dashboard generates it on first start if missing.
-            "secret_key":    prev_get("auth", "secret_key", ""),
+            # Keep it encrypted — decrypt first so we don't double-encrypt.
+            "secret_key":    encrypt_cfg_value(decrypt_cfg_value(prev_get("auth", "secret_key", ""))),
         }
     # If auth was cleared (user chose to disable), omit the section entirely so
     # the dashboard opens without a login page.
