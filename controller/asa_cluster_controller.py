@@ -325,6 +325,11 @@ class ClusterState:
 SERVER_STATES: Dict[str, ServerState] = {k: ServerState(cfg=v) for k, v in SERVERS.items()}
 CLUSTER = ClusterState()
 
+# Reentrant lock — ensures the Discord bot thread and the main loop never
+# modify SERVER_STATES / CLUSTER at the same time.  RLock allows the same
+# thread to acquire it multiple times (e.g. handle_admin_command → start_server).
+_cluster_lock = threading.RLock()
+
 
 def _rotate_log() -> None:
     """On controller startup: archive the current log with a timestamp, then
@@ -1042,6 +1047,11 @@ def _patch_engine_ini() -> None:
 
 
 def start_server(key: str) -> bool:
+    with _cluster_lock:
+        return _start_server_locked(key)
+
+
+def _start_server_locked(key: str) -> bool:
     # Never launch a server while a shutdown or cluster-stop is in progress
     if CLUSTER.shutdown_scheduled or CLUSTER.cluster_stopped:
         log(f"start_server({key}) blocked — cluster shutdown in progress")
@@ -1742,6 +1752,11 @@ def schedule_cluster_restart(delay_seconds: int = 0) -> None:
 
 
 def handle_admin_command(command: str) -> None:
+    with _cluster_lock:
+        _handle_admin_command_locked(command)
+
+
+def _handle_admin_command_locked(command: str) -> None:
     lowered = command.strip().lower()
     if not lowered:
         return
