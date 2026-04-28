@@ -76,7 +76,7 @@ SERVER_ROOT    = _ci("paths",   "server_root",   os.path.join(os.path.dirname(BA
 CLUSTER_DIR    = _ci("paths",   "cluster_dir",   rf"{SERVER_ROOT}\cluster")
 STEAMCMD_EXE   = _ci("paths",   "steamcmd_path", os.path.join(os.path.splitdrive(BASE_DIR)[0] + os.sep, "SteamCMD", "steamcmd.exe"))
 HOST           = _ci("network", "rcon_host",     "127.0.0.1")
-DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "ragnarok")
+DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "theisland")
 
 # ── Limits (formerly [performance]) ───────────────────────────────────────────
 _USER_MAX_ACTIVE_SERVERS = _ci_int("limits", "max_active_servers",    0)  # 0 = auto from RAM

@@ -311,9 +311,9 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
 
     max_players = _ask_int(
         "Max players per map",
-        default=int(prev_get("performance", "max_players", "70")),
+        default=int(prev_get("limits", "max_players", "70")),
         min_val=1,
-        max_val=200,
+        max_val=500,
     )
     print()
 
@@ -323,7 +323,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
 
     poll_seconds = _ask_int(
         "Controller poll interval (seconds)",
-        default=int(prev_get("timers", "poll_seconds", "5")),
+        default=int(prev_get("schedule", "poll_seconds", "5")),
         min_val=1, max_val=60,
     )
     map_shutdown_minutes = _ask_int(
@@ -360,7 +360,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     max_backups = _ask_int(
         "Maximum number of backups to keep",
         default=int(prev_get("backup", "max_backups", "10")),
-        min_val=1, max_val=100,
+        min_val=1, max_val=25,
     )
     print()
 
@@ -428,7 +428,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     print()
     print("  Set a username and password to protect the web dashboard.")
     print("  Press Enter for both to skip — the dashboard will open without a login page.")
-    print("  You can always set or change credentials later in the Settings page.")
+    print("  To change credentials later, re-run setup_wizard.py.")
     print()
 
     _prev_user = prev_get("auth", "username", "")
@@ -480,7 +480,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     print("  Localhost   = dashboard only accessible from this PC.")
     print()
     _prev_public = prev_get("network", "dashboard_public", "false").lower() == "true"
-    dashboard_public = _ask_yes_no("Run as live server (accessible from outside)? [y/N]", default=_prev_public)
+    dashboard_public = _ask_yes_no("Run as live server (accessible from outside)?", default=_prev_public)
     if dashboard_public:
         print("  → Dashboard will be accessible from outside this PC.")
     else:
@@ -582,10 +582,13 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "steamcmd_path": steamcmd_path,
     }
     cfg["limits"] = {
-        "max_active_servers":      str(max_active),
-        "max_players":             str(max_players),
-        "max_tamed_dinos":         prev_get("limits", "max_tamed_dinos",         "5000"),
-        "max_personal_tamed_dinos":prev_get("limits", "max_personal_tamed_dinos","40"),
+        "max_active_servers":       str(max_active),
+        "max_players":              str(max_players),
+        "max_tamed_dinos":          prev_get("limits", "max_tamed_dinos",          "5000"),
+        "max_personal_tamed_dinos": prev_get("limits", "max_personal_tamed_dinos", "40"),
+        "low_memory_mode":          prev_get("limits", "low_memory_mode",          "true"),
+        "no_sound":                 prev_get("limits", "no_sound",                 "true"),
+        "gc_purge_interval":        prev_get("limits", "gc_purge_interval",        "30"),
     }
     cfg["schedule"] = {
         "poll_seconds":             str(poll_seconds),
@@ -605,6 +608,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     cfg["backup"] = {
         "backup_dir":  backup_dir,
         "max_backups": str(max_backups),
+        "max_logs":    prev_get("backup", "max_logs", "10"),
     }
     cfg["world"] = {
         "day_time_speed_scale":                prev_get("world","day_time_speed_scale",               "1.0"),
@@ -682,6 +686,25 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     cfg["mods"] = {
         "crossplay": prev_get("mods","crossplay","false"),
         "mod_ids":   prev_get("mods","mod_ids",  ""),
+    }
+    cfg["crash"] = {
+        "auto_restart_on_crash":  prev_get("crash","auto_restart_on_crash",  "true"),
+        "crash_grace_seconds":    prev_get("crash","crash_grace_seconds",    "120"),
+        "crash_cooldown_minutes": prev_get("crash","crash_cooldown_minutes", "5"),
+        "max_crash_restarts":     prev_get("crash","max_crash_restarts",     "3"),
+        "crash_window_minutes":   prev_get("crash","crash_window_minutes",   "60"),
+    }
+    cfg["discord"] = {
+        "discord_enabled":        prev_get("discord","discord_enabled",        "false"),
+        "use_bot":                prev_get("discord","use_bot",                "false"),
+        "webhook_url":            encrypt_cfg_value(decrypt_cfg_value(prev_get("discord","webhook_url",""))),
+        "notify_server_events":   prev_get("discord","notify_server_events",   "true"),
+        "notify_crash_events":    prev_get("discord","notify_crash_events",    "true"),
+        "notify_cluster_events":  prev_get("discord","notify_cluster_events",  "true"),
+        "bot_token":              encrypt_cfg_value(decrypt_cfg_value(prev_get("discord","bot_token",""))),
+        "notification_channel_id":prev_get("discord","notification_channel_id",""),
+        "command_channel_id":     prev_get("discord","command_channel_id",     ""),
+        "admin_role_name":        prev_get("discord","admin_role_name",        "Admin"),
     }
 
     # Only write [auth] if credentials were provided — no section means auth disabled
