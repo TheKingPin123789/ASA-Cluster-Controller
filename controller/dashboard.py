@@ -2330,7 +2330,9 @@ function render(data) {
 function updateBreedHints() {
   const msInput = document.querySelector('input[data-s="breeding"][data-k="baby_mature_speed_multiplier"]');
   if (!msInput) return;
-  const ms = parseFloat(msInput.value) || 1.0;
+  // Fall back to the placeholder (= current config value) when the field is untouched
+  const msRaw = msInput.value !== '' ? msInput.value : msInput.placeholder;
+  const ms = parseFloat(msRaw) || 1.0;
   const recs = {
     interval: ms > 0 ? (1.8 / ms).toFixed(4) : '1.8000',
     grace:    Math.max(5.0, ms / 10).toFixed(1),
