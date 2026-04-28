@@ -416,7 +416,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     _ms = float(baby_mature_speed)
     _rec_interval = round(1.8 / _ms, 4) if _ms > 0 else 1.0
     _rec_grace    = round(max(5.0, _ms / 10), 1)
-    _rec_imprint  = 20.0
+    _rec_imprint  = 100.0  # guarantees 100% imprint in 1 cuddle for any creature
 
     baby_cuddle_interval = _ask_float("Baby cuddle interval multiplier",    _rec_interval)
     baby_cuddle_grace    = _ask_float("Baby cuddle grace period multiplier", _rec_grace)

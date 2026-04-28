@@ -1963,7 +1963,7 @@ def get_defaults():
             "baby_mature_speed_multiplier": "1.0",
             "baby_cuddle_interval_multiplier": "1.8",
             "baby_cuddle_grace_period_multiplier": "1.0",
-            "baby_imprint_amount_multiplier": "20.0",
+            "baby_imprint_amount_multiplier": "100.0",
         },
         "flags": {
             "allow_third_person": "false",
@@ -2213,7 +2213,7 @@ const SCHEMA = [
       {s:'breeding', k:'baby_mature_speed_multiplier',        label:'Mature Speed',        ph:'1.0', hint:'✦ Rec: 50.0 — fast maturation'},
       {s:'breeding', k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval',     ph:'1.8 ÷ mature speed', rec:'interval'},
       {s:'breeding', k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period', ph:'max(5.0, mature÷10)', rec:'grace'},
-      {s:'breeding', k:'baby_imprint_amount_multiplier',      label:'Imprint Amount',      ph:'20.0',               rec:'imprint'},
+      {s:'breeding', k:'baby_imprint_amount_multiplier',      label:'Imprint Amount',      ph:'100.0',              rec:'imprint'},
     ]},
   ]},
   { group:'Flags', sections:[
@@ -2334,7 +2334,7 @@ function updateBreedHints() {
   const recs = {
     interval: ms > 0 ? (1.8 / ms).toFixed(4) : '1.8000',
     grace:    Math.max(5.0, ms / 10).toFixed(1),
-    imprint:  '20.0',
+    imprint:  '100.0',
   };
   document.querySelectorAll('.breed-hint').forEach(el => {
     const r = el.dataset.rec;
@@ -2426,6 +2426,108 @@ async function load() {
   wireDiscordToggle();
 }
 
+// ── Settings validation ─────────────────────────────────────────────────────
+// Returns null if all values are valid, or an error string to show the user.
+function validateSettings(payload) {
+  // Integer rules: [section, key, label, min, max]
+  const INT_RULES = [
+    ['limits',   'max_active_servers',           'Max Active Maps',               1,  9],
+    ['limits',   'max_players',                  'Max Players',                   1,  500],
+    ['limits',   'max_tamed_dinos',              'Max Tamed Dinos',               1,  100000],
+    ['limits',   'max_personal_tamed_dinos',     'Max Personal Tamed Dinos',      1,  9999],
+    ['limits',   'gc_purge_interval',            'GC Purge Interval',             1,  3600],
+    ['schedule', 'poll_seconds',                 'Poll Seconds',                  1,  60],
+    ['timers',   'map_shutdown_minutes',         'Map Shutdown Minutes',          1,  1440],
+    ['timers',   'autosave_minutes',             'Autosave Minutes',              1,  120],
+    ['timers',   'startup_grace_minutes',        'Startup Grace Minutes',         1,  120],
+    ['timers',   'cluster_shutdown_minutes',     'Cluster Shutdown Minutes',      1,  1440],
+    ['timers',   'server_start_timeout_seconds', 'Server Start Timeout (sec)',    30, 3600],
+    ['timers',   'save_before_exit_seconds',     'Save Before Exit (sec)',        1,  300],
+    ['timers',   'post_shutdown_wait_seconds',   'Post Shutdown Wait (sec)',      1,  300],
+    ['timers',   'crash_detection_threshold',    'Crash Detection Threshold',     1,  60],
+    ['backup',   'max_backups',                  'Max Backups',                   1,  25],
+    ['backup',   'max_logs',                     'Max Logs',                      1,  100],
+    ['crash',    'crash_grace_seconds',          'Crash Grace (sec)',             1,  600],
+    ['crash',    'crash_cooldown_minutes',       'Crash Cooldown (min)',          1,  60],
+    ['crash',    'max_crash_restarts',           'Max Crash Restarts',            1,  10],
+    ['crash',    'crash_window_minutes',         'Crash Window (min)',            1,  1440],
+    ['network',  'web_status_port',             'Dashboard Port',                1,  65535],
+  ];
+
+  // Float rules: [section, key, label, min, max]
+  const FLOAT_RULES = [
+    ['rates',     'difficulty_offset',                          'Difficulty Offset',                        0.0,   10.0],
+    ['world',     'day_time_speed_scale',                       'Day Time Speed Scale',                     0.001, 999.0],
+    ['world',     'night_time_speed_scale',                     'Night Time Speed Scale',                   0.001, 999.0],
+    ['world',     'dino_count_multiplier',                      'Dino Count Multiplier',                    0.001, 999.0],
+    ['world',     'resources_respawn_period_multiplier',        'Resources Respawn Period Multiplier',       0.001, 999.0],
+    ['rates',     'xp_multiplier',                              'XP Multiplier',                            0.001, 999.0],
+    ['rates',     'taming_speed_multiplier',                    'Taming Speed Multiplier',                  0.001, 999.0],
+    ['rates',     'harvest_amount_multiplier',                  'Harvest Amount Multiplier',                0.001, 999.0],
+    ['rates',     'item_stack_size_multiplier',                 'Item Stack Size Multiplier',               0.001, 999.0],
+    ['rates',     'loot_quality_multiplier',                    'Loot Quality Multiplier',                  0.001, 999.0],
+    ['rates',     'fishing_loot_quality_multiplier',            'Fishing Loot Quality Multiplier',          0.001, 999.0],
+    ['rates',     'supply_crate_loot_quality_multiplier',       'Supply Crate Loot Quality Multiplier',     0.001, 999.0],
+    ['rates',     'global_spoiling_time_multiplier',            'Global Spoiling Time Multiplier',          0.001, 999.0],
+    ['rates',     'global_item_decomposition_time_multiplier',  'Item Decomposition Time Multiplier',       0.001, 999.0],
+    ['rates',     'global_corpse_decomposition_time_multiplier','Corpse Decomposition Time Multiplier',     0.001, 999.0],
+    ['rates',     'crop_growth_speed_multiplier',               'Crop Growth Speed Multiplier',             0.001, 999.0],
+    ['rates',     'fuel_consumption_interval_multiplier',       'Fuel Consumption Interval Multiplier',     0.001, 999.0],
+    ['survival',  'player_food_drain_multiplier',               'Player Food Drain Multiplier',             0.001, 999.0],
+    ['survival',  'player_water_drain_multiplier',              'Player Water Drain Multiplier',            0.001, 999.0],
+    ['survival',  'player_stamina_drain_multiplier',            'Player Stamina Drain Multiplier',          0.001, 999.0],
+    ['survival',  'player_health_recovery_multiplier',          'Player Health Recovery Multiplier',        0.001, 999.0],
+    ['survival',  'dino_food_drain_multiplier',                 'Dino Food Drain Multiplier',               0.001, 999.0],
+    ['survival',  'dino_health_recovery_multiplier',            'Dino Health Recovery Multiplier',          0.001, 999.0],
+    ['combat',    'player_damage_multiplier',                   'Player Damage Multiplier',                 0.001, 999.0],
+    ['combat',    'player_resistance_multiplier',               'Player Resistance Multiplier',             0.001, 999.0],
+    ['combat',    'dino_damage_multiplier',                     'Dino Damage Multiplier',                   0.001, 999.0],
+    ['combat',    'dino_resistance_multiplier',                 'Dino Resistance Multiplier',               0.001, 999.0],
+    ['combat',    'tamed_dino_damage_multiplier',               'Tamed Dino Damage Multiplier',             0.001, 999.0],
+    ['combat',    'tamed_dino_resistance_multiplier',           'Tamed Dino Resistance Multiplier',         0.001, 999.0],
+    ['combat',    'structure_damage_multiplier',                'Structure Damage Multiplier',              0.001, 999.0],
+    ['breeding',  'mating_interval_multiplier',                 'Mating Interval Multiplier',               0.001, 999.0],
+    ['breeding',  'mating_speed_multiplier',                    'Mating Speed Multiplier',                  0.001, 999.0],
+    ['breeding',  'egg_hatch_speed_multiplier',                 'Egg Hatch Speed Multiplier',               0.001, 999.0],
+    ['breeding',  'lay_egg_interval_multiplier',                'Lay Egg Interval Multiplier',              0.001, 999.0],
+    ['breeding',  'baby_mature_speed_multiplier',               'Baby Mature Speed Multiplier',             0.001, 999.0],
+    ['breeding',  'baby_cuddle_interval_multiplier',            'Baby Cuddle Interval Multiplier',          0.001, 999.0],
+    ['breeding',  'baby_cuddle_grace_period_multiplier',        'Baby Cuddle Grace Period Multiplier',      0.001, 999.0],
+    ['breeding',  'baby_imprint_amount_multiplier',             'Baby Imprint Amount Multiplier',           0.001, 999.0],
+    ['structures','per_platform_max_structures_multiplier',     'Per Platform Max Structures Multiplier',   0.001, 999.0],
+  ];
+
+  const errors = [];
+
+  for (const [sec, key, label, min, max] of INT_RULES) {
+    const raw = (payload[sec] || {})[key];
+    if (raw === undefined || raw === '') continue; // field not present / blank = keep old value
+    const v = parseInt(raw, 10);
+    if (isNaN(v) || !Number.isFinite(v) || v < min || v > max) {
+      errors.push(`• ${label}: must be a whole number between ${min} and ${max} (got "${raw}")`);
+    }
+  }
+
+  for (const [sec, key, label, min, max] of FLOAT_RULES) {
+    const raw = (payload[sec] || {})[key];
+    if (raw === undefined || raw === '') continue;
+    const v = parseFloat(raw);
+    if (isNaN(v) || !Number.isFinite(v) || v < min || v > max) {
+      errors.push(`• ${label}: must be a number between ${min} and ${max} (got "${raw}")`);
+    }
+  }
+
+  // restart_time: must be HH:MM (24-hour) or blank
+  const rt = (payload.schedule || {}).restart_time;
+  if (rt !== undefined && rt !== '') {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(rt)) {
+      errors.push(`• Restart Time: must be in HH:MM format (24-hour) or left blank (got "${rt}")`);
+    }
+  }
+
+  return errors.length === 0 ? null : errors.join('\n');
+}
+
 async function save() {
   const btn = document.getElementById('save-btn');
   btn.textContent = 'Saving…'; btn.disabled = true;
@@ -2447,7 +2549,16 @@ async function save() {
       payload[s][k] = i.value !== '' ? i.value : i.placeholder;
     }
   });
-  // Validate max_active_servers before sending
+
+  // Validate all fields before sending
+  const validationError = validateSettings(payload);
+  if (validationError) {
+    btn.textContent = 'Save Settings'; btn.disabled = false;
+    alert('Please fix the following before saving:\n\n' + validationError);
+    return;
+  }
+
+  // Validate max_active_servers against RAM-based limit
   const requestedMax = parseInt((payload.limits || {}).max_active_servers || '0', 10);
   if (_ramMaxMaps && requestedMax > 0 && requestedMax > _ramMaxMaps) {
     btn.textContent = 'Save Settings'; btn.disabled = false;
