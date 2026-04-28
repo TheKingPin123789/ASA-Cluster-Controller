@@ -515,7 +515,9 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         else:
             print("  → No VPS relay — using direct connection.")
     else:
-        public_ip = ""
+        # Always carry forward the existing IP even when live mode is off —
+        # so re-enabling live mode later doesn't lose the setting.
+        public_ip = prev_get("network", "public_ip", "")
     print()
 
     # ── Confirm & write ───────────────────────────────────
@@ -568,14 +570,12 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "rcon_password": encrypt_cfg_value(rcon_password),
         "default_map": default_map,
     }
-    _network = {
+    cfg["network"] = {
         "rcon_host":        prev_get("network", "rcon_host", "127.0.0.1"),
         "web_status_port":  web_status_port,
         "dashboard_public": "true" if dashboard_public else "false",
+        "public_ip":        public_ip,  # always written; empty string = disabled
     }
-    if public_ip:
-        _network["public_ip"] = public_ip
-    cfg["network"] = _network
     cfg["paths"] = {
         "server_root": server_root,
         "cluster_dir": cluster_dir,
@@ -732,16 +732,114 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     return cfg
 
 
+# ── Hardcoded defaults for every key the controller/dashboard expects ─────────
+_DEFAULTS: dict = {
+    "cluster":  {"cluster_name": "MyCluster", "cluster_id": "MyClusterCluster",
+                 "default_map": "theisland"},
+    "network":  {"rcon_host": "127.0.0.1", "web_status_port": "5000",
+                 "public_ip": "", "dashboard_public": "false"},
+    "limits":   {"max_active_servers": "3", "max_players": "70",
+                 "max_tamed_dinos": "5000", "max_personal_tamed_dinos": "40",
+                 "low_memory_mode": "true", "no_sound": "true", "gc_purge_interval": "30"},
+    "schedule": {"poll_seconds": "5", "check_updates_on_startup": "true", "restart_time": ""},
+    "timers":   {"map_shutdown_minutes": "60", "startup_grace_minutes": "15",
+                 "autosave_minutes": "30", "cluster_shutdown_minutes": "30",
+                 "server_start_timeout_seconds": "300", "save_before_exit_seconds": "10",
+                 "post_shutdown_wait_seconds": "30", "crash_detection_threshold": "5"},
+    "backup":   {"max_backups": "10", "max_logs": "10"},
+    "world":    {"day_time_speed_scale": "1.0", "night_time_speed_scale": "1.0",
+                 "dino_count_multiplier": "1.0", "resources_respawn_period_multiplier": "1.0",
+                 "active_event": "", "disable_weather_fog": "false"},
+    "rates":    {"xp_multiplier": "1.0", "taming_speed_multiplier": "1.0",
+                 "harvest_amount_multiplier": "1.0", "difficulty_offset": "1.0",
+                 "item_stack_size_multiplier": "1.0", "loot_quality_multiplier": "1.0",
+                 "fishing_loot_quality_multiplier": "1.0",
+                 "supply_crate_loot_quality_multiplier": "1.0",
+                 "global_spoiling_time_multiplier": "1.0",
+                 "global_item_decomposition_time_multiplier": "1.0",
+                 "global_corpse_decomposition_time_multiplier": "1.0",
+                 "crop_growth_speed_multiplier": "1.0",
+                 "fuel_consumption_interval_multiplier": "1.0"},
+    "survival": {"player_food_drain_multiplier": "1.0", "player_water_drain_multiplier": "1.0",
+                 "player_stamina_drain_multiplier": "1.0",
+                 "player_health_recovery_multiplier": "1.0",
+                 "dino_food_drain_multiplier": "1.0", "dino_health_recovery_multiplier": "1.0"},
+    "combat":   {"player_damage_multiplier": "1.0", "player_resistance_multiplier": "1.0",
+                 "dino_damage_multiplier": "1.0", "dino_resistance_multiplier": "1.0",
+                 "tamed_dino_damage_multiplier": "1.0", "tamed_dino_resistance_multiplier": "1.0",
+                 "structure_damage_multiplier": "1.0", "show_floating_damage_text": "false",
+                 "allow_hit_markers": "true"},
+    "breeding": {"mating_interval_multiplier": "1.0", "mating_speed_multiplier": "1.0",
+                 "egg_hatch_speed_multiplier": "1.0", "lay_egg_interval_multiplier": "1.0",
+                 "baby_mature_speed_multiplier": "1.0", "baby_cuddle_interval_multiplier": "1.8",
+                 "baby_cuddle_grace_period_multiplier": "1.0",
+                 "baby_imprint_amount_multiplier": "100.0"},
+    "structures": {"structure_pickup_time_after_placement": "30",
+                   "per_platform_max_structures_multiplier": "1.0"},
+    "flags":    {"allow_third_person": "false", "show_map_player_location": "true",
+                 "always_allow_structure_pickup": "true", "disable_structure_decay_pve": "false",
+                 "disable_dino_decay_pve": "false", "allow_cave_building_pve": "false",
+                 "allow_anyone_baby_imprint_cuddle": "false", "allow_flyer_carry_pve": "true",
+                 "allow_flyer_speed_leveling": "false", "prevent_download_survivors": "false",
+                 "prevent_download_items": "false", "require_powered_cryofridge": "true",
+                 "disable_cryo_sickness_pvp": "false", "force_allow_cave_flyers": "false",
+                 "exclusive_join": "false"},
+    "mods":     {"crossplay": "false", "mod_ids": ""},
+    "crash":    {"auto_restart_on_crash": "true", "crash_grace_seconds": "120",
+                 "crash_cooldown_minutes": "5", "max_crash_restarts": "3",
+                 "crash_window_minutes": "60"},
+    "discord":  {"discord_enabled": "false", "use_bot": "false", "webhook_url": "",
+                 "notify_server_events": "true", "notify_crash_events": "true",
+                 "notify_cluster_events": "true", "bot_token": "",
+                 "notification_channel_id": "", "command_channel_id": "",
+                 "admin_role_name": "Admin"},
+}
+
+# Keys that are machine-specific paths — skip auto-filling if missing so the user
+# is not surprised by wrong paths appearing silently.
+_SKIP_AUTOFILL: set = {"server_root", "cluster_dir", "steamcmd_path", "backup_dir"}
+
+
+def _backfill_config(cfg: configparser.ConfigParser) -> bool:
+    """
+    Add any missing sections/keys from _DEFAULTS to cfg in-place.
+    Writes the updated config back to disk only if something was added.
+    Returns True if the file was updated.
+    """
+    added: list[str] = []
+    for section, keys in _DEFAULTS.items():
+        if not cfg.has_section(section):
+            cfg.add_section(section)
+        for key, default in keys.items():
+            if key in _SKIP_AUTOFILL:
+                continue
+            if not cfg.has_option(section, key):
+                cfg.set(section, key, default)
+                added.append(f"[{section}] {key} = {default!r}")
+    if added:
+        try:
+            with CONFIG_PATH.open("w", encoding="utf-8") as f:
+                cfg.write(f)
+            print(f"  Config backfilled {len(added)} missing key(s) with defaults.")
+        except Exception as exc:
+            print(f"  WARNING: could not write backfilled config: {exc}")
+        return True
+    return False
+
+
 def prompt_setup_on_startup() -> configparser.ConfigParser:
     """
     Called at controller startup.
     If config.ini is missing, runs the interactive setup wizard right here
-    in the CMD window.  If config.ini already exists, loads and returns it.
+    in the CMD window.  If config.ini already exists, loads it and backfills
+    any keys that are missing (e.g. after an update added new settings).
     Returns the active ConfigParser.
     """
     if not config_exists():
         return run_wizard()
-    return load_config()
+    cfg = load_config()
+    _backfill_config(cfg)
+    return cfg
 
 
 if __name__ == "__main__":

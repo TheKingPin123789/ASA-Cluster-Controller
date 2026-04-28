@@ -1945,7 +1945,7 @@ def get_defaults():
         "schedule": {
             "poll_seconds": "5",
             "check_updates_on_startup": "true",
-            "restart_time": "06:00",
+            "restart_time": "",
         },
         "rates": {
             "xp_multiplier": "1.0",
@@ -2023,6 +2023,12 @@ input:focus { outline:none; border-color:#3b4a7a; }
 .sec-head:first-child { margin-top:0; }
 input::placeholder { color:#3d4a62; }
 .breed-hint { font-size:12px; color:#4ade80; display:block; margin-top:3px; }
+select.s-sel { width:100%; background:#131825; border:1px solid #2a3050; color:#dde1e7;
+  padding:6px 10px; border-radius:4px; font-size:14px; font-family:inherit; cursor:pointer; }
+select.s-sel:focus { outline:none; border-color:#3b4a7a; }
+.restart-warn, select.restart-warn { border-color:#f97316 !important; box-shadow:0 0 0 1px #f97316; }
+#restart-banner { background:#431407; color:#fb923c; padding:8px 12px; border-radius:4px;
+  font-size:13px; margin-top:8px; display:none; }
 
 /* Toggle switch */
 .toggle-label { display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none; font-size:14px; padding:4px 0; }
@@ -2045,11 +2051,12 @@ input::placeholder { color:#3d4a62; }
   <h1>⚙ Settings</h1>
 </div>
 <div class="notice" id="notice">No config.ini found — defaults loaded. Fill in your values and save.</div>
-<div class="hint">Most changes apply on the next server start. Schedule, network, and path changes require a controller restart.</div>
+<div class="hint">Most changes apply on the next server start or controller restart. Fields outlined in orange require a dashboard restart to take effect.</div>
 <div class="tab-bar" id="tab-bar"></div>
 <div class="tab-content">
   <div id="form"></div>
 </div>
+<div id="restart-banner">⚠ Fields with an orange outline require a dashboard restart to take effect — save first, then use the Restart Dashboard button on the main page.</div>
 <div class="footer"><button class="btn" id="save-btn" onclick="save()">Save Settings</button></div>
 </div>
 <script>
@@ -2064,9 +2071,11 @@ const SCHEMA = [
   { group:'Cluster', sections:[
     { title:'Identity', fields:[
       {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'MyCluster'},
-      {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'theisland'},
-      {s:'network',    k:'rcon_host',      label:'RCON Host',           ph:'127.0.0.1'},
-      {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
+      {s:'cluster',    k:'default_map',    label:'Default Map',    type:'select',
+        options:['theisland','ragnarok','thecenter','valguero','scorchedearth','aberration','extinction','lostcolony','astraeos']},
+      {s:'network',    k:'rcon_host',      label:'RCON Host',      ph:'127.0.0.1'},
+      {s:'network',    k:'web_status_port',label:'Dashboard Port', ph:'5000', restart:true,
+        hint:'⚠ Requires a dashboard restart to take effect'},
     ]},
     { title:'Paths', fields:[
       {s:'paths', k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',              wide:true},
@@ -2091,7 +2100,7 @@ const SCHEMA = [
     ]},
     { title:'Schedule', grid:true, fields:[
       {s:'schedule', k:'poll_seconds',            label:'Poll Interval (s)',      ph:'5'},
-      {s:'schedule', k:'restart_time',            label:'Daily Restart (HH:MM)',  ph:'06:00'},
+      {s:'schedule', k:'restart_time',            label:'Daily Restart (HH:MM)',  ph:'', hint:'Leave blank to disable scheduled restarts'},
       {s:'schedule', k:'check_updates_on_startup',label:'Check Updates on Start', ph:'true'},
     ]},
     { title:'Timers', grid:true, fields:[
@@ -2310,6 +2319,13 @@ function render(data) {
           </label>${hint}`;
         } else if (f.type === 'info') {
           d.innerHTML = `<div class="info-box">${f.html}</div>`;
+        } else if (f.type === 'select') {
+          // Dropdown — options defined in SCHEMA
+          const cur = saved || f.ph || (f.options && f.options[0]) || '';
+          const opts = (f.options || []).map(o =>
+            `<option value="${esc(o)}"${cur === o ? ' selected' : ''}>${esc(o)}</option>`
+          ).join('');
+          d.innerHTML = `<label>${esc(f.label)}</label><select class="s-sel" data-s="${f.s}" data-k="${f.k}">${opts}</select>${hint}`;
         } else {
           // Non-checkbox field: pre-fill value with the current config value so the
           // user can see what is set; fall back to the schema default as placeholder.
@@ -2318,7 +2334,8 @@ function render(data) {
           // Password fields stay empty — user must retype to change
           const inputVal  = f.type === 'password' ? '' : esc(saved);
           const inputPh   = esc(f.ph || '');
-          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="${inputVal}" placeholder="${inputPh}">${hint}`;
+          const restartAttr = f.restart ? ` data-restart="true" data-original="${inputVal}"` : '';
+          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="${inputVal}" placeholder="${inputPh}"${restartAttr}>${hint}`;
         }
         wrap.appendChild(d);
       }
@@ -2425,6 +2442,23 @@ async function load() {
   }
   wireBreedingHints();
   wireDiscordToggle();
+  // Wire oninput for restart-required fields
+  document.querySelectorAll('[data-restart]').forEach(el => {
+    el.addEventListener('input', checkRestartWarnings);
+  });
+  checkRestartWarnings();
+}
+
+// ── Restart-required field warnings ─────────────────────────────────────────
+function checkRestartWarnings() {
+  let needsRestart = false;
+  document.querySelectorAll('[data-restart]').forEach(el => {
+    const changed = el.value !== (el.dataset.original || '');
+    el.classList.toggle('restart-warn', changed);
+    if (changed) needsRestart = true;
+  });
+  const banner = document.getElementById('restart-banner');
+  if (banner) banner.style.display = needsRestart ? '' : 'none';
 }
 
 // ── Settings validation ─────────────────────────────────────────────────────
@@ -2533,12 +2567,14 @@ async function save() {
   const btn = document.getElementById('save-btn');
   btn.textContent = 'Saving…'; btn.disabled = true;
   const payload = {};
-  document.querySelectorAll('#form input').forEach(i => {
+  document.querySelectorAll('#form input, #form select').forEach(i => {
     const s = i.dataset.s, k = i.dataset.k;
     if (!s || !k) return; // skip inputs without data-s / data-k
     if (!payload[s]) payload[s] = {};
-    // Checkboxes store "true"/"false" strings; password fields send exact value
-    if (i.type === 'checkbox') {
+    if (i.tagName === 'SELECT') {
+      payload[s][k] = i.value;
+    } else if (i.type === 'checkbox') {
+      // Checkboxes store "true"/"false" strings
       payload[s][k] = i.checked ? 'true' : 'false';
     } else if (i.type === 'password') {
       // Only include password fields when the user actually typed something
@@ -2580,6 +2616,12 @@ async function save() {
     if (!r) return; // 401 — apiFetch already redirected to /login
     if (r.ok) {
       document.getElementById('notice').style.display = 'none';
+      // Update data-original on restart-required fields so outline clears after save
+      document.querySelectorAll('[data-restart]').forEach(el => {
+        el.dataset.original = el.value;
+        el.classList.remove('restart-warn');
+      });
+      checkRestartWarnings();
       btn.textContent = 'Saved!'; btn.className = 'btn saved'; btn.disabled = false;
       setTimeout(reset, 2000);
     } else {
