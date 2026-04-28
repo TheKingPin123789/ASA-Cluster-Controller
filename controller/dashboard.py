@@ -146,6 +146,17 @@ def _get_web_port() -> int:
     except Exception:
         return 5000
 
+
+def _get_dashboard_host() -> str:
+    """Return 0.0.0.0 if dashboard_public=true, else 127.0.0.1 (localhost only)."""
+    cfg = configparser.RawConfigParser()
+    try:
+        cfg.read(CONFIG_FILE, encoding="utf-8")
+        public = cfg.get("network", "dashboard_public", fallback="false").strip().lower()
+        return "0.0.0.0" if public == "true" else "127.0.0.1"
+    except Exception:
+        return "127.0.0.1"
+
 # ---------------------------------------------------------------------------
 # HTML dashboard
 # ---------------------------------------------------------------------------
@@ -2648,19 +2659,21 @@ if __name__ == "__main__":
         print("Dashboard login disabled — set a password in Settings to enable it.")
 
     port = _get_web_port()
+    host = _get_dashboard_host()
     try:
         # Probe the port before Flask tries to bind — gives a clear error message
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("0.0.0.0", port))
+            s.bind((host, port))
     except OSError:
         print(f"ERROR: Port {port} is already in use.")
         print(f"       Either stop the process using port {port}, or change")
         print(f"       'web_status_port' in controller/config.ini to a free port.")
         input("\nPress Enter to close...")
         raise SystemExit(1)
-    print(f"Dashboard running at http://localhost:{port}")
+    access = "externally" if host == "0.0.0.0" else "locally (localhost only)"
+    print(f"Dashboard running at http://localhost:{port}  [{access}]")
     try:
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        app.run(host=host, port=port, debug=False, use_reloader=False)
     finally:
         try:
             os.remove(DASHBOARD_PID_FILE)

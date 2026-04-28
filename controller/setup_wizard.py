@@ -476,6 +476,16 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     # ── Dashboard port & VPS ──────────────────────────────
     print("[ Dashboard access ]")
     print()
+    print("  Live server = dashboard accessible from outside your PC (anyone with the IP).")
+    print("  Localhost   = dashboard only accessible from this PC.")
+    print()
+    _prev_public = prev_get("network", "dashboard_public", "false").lower() == "true"
+    dashboard_public = _ask_yes_no("Run as live server (accessible from outside)? [y/N]", default=_prev_public)
+    if dashboard_public:
+        print("  → Dashboard will be accessible from outside this PC.")
+    else:
+        print("  → Dashboard will only be accessible from this PC (localhost).")
+    print()
     print("  Port the web dashboard listens on.")
     print("  Leave blank to use the default (5000).")
     _raw_port = _ask(
@@ -491,18 +501,21 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     else:
         web_status_port = "5000"
 
-    print()
-    print("  If you use a VPS relay (WireGuard tunnel) so outside players")
-    print("  can reach the server, enter the VPS public IP here.")
-    print("  Leave blank if players connect directly to your home IP.")
-    public_ip = _ask(
-        "VPS public IP (leave blank if none)",
-        prev_get("network", "public_ip", ""),
-    ).strip()
-    if public_ip:
-        print(f"  → ARK will advertise {public_ip} to Steam.")
+    if dashboard_public:
+        print()
+        print("  If you use a VPS relay (WireGuard tunnel) so outside players")
+        print("  can reach the server, enter the VPS public IP here.")
+        print("  Leave blank if players connect directly to your home IP.")
+        public_ip = _ask(
+            "VPS public IP (leave blank if none)",
+            prev_get("network", "public_ip", ""),
+        ).strip()
+        if public_ip:
+            print(f"  → ARK will advertise {public_ip} to Steam.")
+        else:
+            print("  → No VPS relay — using direct connection.")
     else:
-        print("  → No VPS relay — using direct connection.")
+        public_ip = ""
     print()
 
     # ── Confirm & write ───────────────────────────────────
@@ -538,6 +551,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         print(f"  Dashboard login   : enabled (username: {dash_username})")
     else:
         print( "  Dashboard login   : disabled (no login page)")
+    print(f"  Live server       : {'yes (accessible from outside)' if dashboard_public else 'no (localhost only)'}")
     print(f"  Dashboard port    : {web_status_port}")
     print(f"  VPS public IP     : {public_ip if public_ip else 'none (direct connection)'}")
     print()
@@ -555,8 +569,9 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "default_map": default_map,
     }
     _network = {
-        "rcon_host":       prev_get("network", "rcon_host", "127.0.0.1"),
-        "web_status_port": web_status_port,
+        "rcon_host":        prev_get("network", "rcon_host", "127.0.0.1"),
+        "web_status_port":  web_status_port,
+        "dashboard_public": "true" if dashboard_public else "false",
     }
     if public_ip:
         _network["public_ip"] = public_ip
