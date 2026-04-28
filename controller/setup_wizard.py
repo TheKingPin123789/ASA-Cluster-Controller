@@ -473,6 +473,38 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         print("  → Dashboard login disabled — no login page will be shown.")
     print()
 
+    # ── Dashboard port & VPS ──────────────────────────────
+    print("[ Dashboard access ]")
+    print()
+    print("  Port the web dashboard listens on.")
+    print("  Leave blank to use the default (5000).")
+    _raw_port = _ask(
+        "Dashboard port (leave blank for 5000)",
+        prev_get("network", "web_status_port", ""),
+    ).strip()
+    if _raw_port:
+        try:
+            web_status_port = str(int(_raw_port))
+        except ValueError:
+            print("  Invalid port — using 5000.")
+            web_status_port = "5000"
+    else:
+        web_status_port = "5000"
+
+    print()
+    print("  If you use a VPS relay (WireGuard tunnel) so outside players")
+    print("  can reach the server, enter the VPS public IP here.")
+    print("  Leave blank if players connect directly to your home IP.")
+    public_ip = _ask(
+        "VPS public IP (leave blank if none)",
+        prev_get("network", "public_ip", ""),
+    ).strip()
+    if public_ip:
+        print(f"  → ARK will advertise {public_ip} to Steam.")
+    else:
+        print("  → No VPS relay — using direct connection.")
+    print()
+
     # ── Confirm & write ───────────────────────────────────
     print("[ Summary ]")
     print()
@@ -506,6 +538,8 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         print(f"  Dashboard login   : enabled (username: {dash_username})")
     else:
         print( "  Dashboard login   : disabled (no login page)")
+    print(f"  Dashboard port    : {web_status_port}")
+    print(f"  VPS public IP     : {public_ip if public_ip else 'none (direct connection)'}")
     print()
 
     if not _ask_yes_no("Save this configuration?", default=True):
@@ -520,10 +554,13 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "rcon_password": encrypt_cfg_value(rcon_password),
         "default_map": default_map,
     }
-    cfg["network"] = {
-        "rcon_host":      prev_get("network", "rcon_host",      "127.0.0.1"),
-        "web_status_port": prev_get("network", "web_status_port", "8880"),
+    _network = {
+        "rcon_host":       prev_get("network", "rcon_host", "127.0.0.1"),
+        "web_status_port": web_status_port,
     }
+    if public_ip:
+        _network["public_ip"] = public_ip
+    cfg["network"] = _network
     cfg["paths"] = {
         "server_root": server_root,
         "cluster_dir": cluster_dir,
