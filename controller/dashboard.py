@@ -1753,8 +1753,9 @@ def post_settings():
         if not cfg.has_section(section):
             cfg.add_section(section)
         for key, value in kvs.items():
-            # Block sensitive auth fields — must never be set directly via the API
-            if section == "auth" and key in ("password_hash", "secret_key", "new_password"):
+            # Auth section is read-only from the dashboard — all credentials
+            # must be changed via setup_wizard.py only
+            if section == "auth":
                 continue
             str_val = str(value)
             # Encrypt sensitive fields before writing to disk
@@ -2066,9 +2067,6 @@ const SCHEMA = [
       {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
       {s:'network',    k:'rcon_host',      label:'RCON Host',           ph:'127.0.0.1'},
       {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
-    ]},
-    { title:'Dashboard Login', fields:[
-      {s:'auth', k:'username', label:'Username', ph:'admin', hint:'Login username — change password via the Setup Wizard (setup_wizard.py)'},
     ]},
     { title:'Paths', fields:[
       {s:'paths', k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',              wide:true},
@@ -2772,7 +2770,7 @@ if __name__ == "__main__":
         _stored_user = _auth_cfg.get("auth", "username", fallback="admin")
         print(f"Dashboard login enabled — username: {_stored_user}")
     else:
-        print("Dashboard login disabled — set a password in Settings to enable it.")
+        print("Dashboard login disabled — run setup_wizard.py to set a username and password.")
 
     port = _get_web_port()
     host = _get_dashboard_host()
