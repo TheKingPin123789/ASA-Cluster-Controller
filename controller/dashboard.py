@@ -1753,9 +1753,11 @@ def post_settings():
         if not cfg.has_section(section):
             cfg.add_section(section)
         for key, value in kvs.items():
-            # Auth section is read-only from the dashboard — all credentials
-            # must be changed via setup_wizard.py only
+            # These fields are read-only from the dashboard — must be changed
+            # via setup_wizard.py only
             if section == "auth":
+                continue
+            if section == "cluster" and key == "rcon_password":
                 continue
             str_val = str(value)
             # Encrypt sensitive fields before writing to disk
@@ -1886,7 +1888,6 @@ def get_defaults():
     return jsonify({
         "cluster": {
             "cluster_name": "MyCluster",
-            "rcon_password": "ChangeMe123",
             "default_map": "ragnarok",
         },
         "network": {
@@ -2063,7 +2064,6 @@ const SCHEMA = [
   { group:'Cluster', sections:[
     { title:'Identity', fields:[
       {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'MyCluster'},
-      {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'ChangeMe123'},
       {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
       {s:'network',    k:'rcon_host',      label:'RCON Host',           ph:'127.0.0.1'},
       {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
