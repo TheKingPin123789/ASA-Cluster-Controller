@@ -2246,10 +2246,20 @@ def update_running_status(state: ServerState) -> None:
 
         if state.is_starting and state.start_requested_at:
             if now - state.start_requested_at > SERVER_START_TIMEOUT_SECONDS:
-                log(f"START TIMEOUT: {state.cfg.key}")
-                state.is_starting = False
-                state.start_requested_at = None
-                state.pending_online_announcement = False
+                # Before giving up, check whether the game port is still occupied.
+                # If it is, the process is alive but RCON is broken (e.g. server was
+                # started with a different password).  Keep is_starting=True and
+                # reset the timer so the controller keeps waiting rather than
+                # oscillating between STARTING → OFFLINE → STARTING every 5 min.
+                if get_pid_on_port(state.cfg.game_port):
+                    log(f"START TIMEOUT (port still in use): {state.cfg.key} — "
+                        f"RCON unreachable but process is alive, extending wait")
+                    state.start_requested_at = now  # reset timer
+                else:
+                    log(f"START TIMEOUT: {state.cfg.key}")
+                    state.is_starting = False
+                    state.start_requested_at = None
+                    state.pending_online_announcement = False
         elif not state.is_starting:
             state.rcon_fail_count = 0
             state.empty_since = None
