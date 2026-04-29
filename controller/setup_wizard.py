@@ -569,7 +569,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     cfg["cluster"] = {
         "cluster_name": cluster_name,
         "cluster_id": cluster_id,
-        "rcon_password": encrypt_cfg_value(rcon_password),
+        "rcon_password": rcon_password,
         "default_map": default_map,
     }
     cfg["network"] = {
