@@ -10,8 +10,14 @@ set EXTRACT_DIR=%~dp0controller_extract
 set SHA_FILE=%~dp0.installed_sha
 
 :: ── Fresh install ──────────────────────────────────────────────────────────────
-:: Download all controller files if they are missing entirely
-if not exist "controller\asa_cluster_controller.py" (
+:: Download all controller files if any critical file is missing
+set _NEEDS_INSTALL=0
+if not exist "controller\asa_cluster_controller.py" set _NEEDS_INSTALL=1
+if not exist "controller\dashboard.py"              set _NEEDS_INSTALL=1
+if not exist "controller\setup_wizard.py"           set _NEEDS_INSTALL=1
+if not exist "controller\config_crypt.py"           set _NEEDS_INSTALL=1
+
+if "!_NEEDS_INSTALL!"=="1" (
     echo.
     echo Controller files not found. Downloading from GitHub...
     echo.
@@ -150,6 +156,26 @@ echo Dependencies ready.
 echo.
 
 cd /d "%~dp0controller"
+
+:: ── Server-files check ──────────────────────────────────────────────────────────
+:: Read server_root from config.ini (if present) and warn when the exe is missing.
+:: The controller will auto-download via SteamCMD — this message tells the user why
+:: it may take a while before any server appears online.
+if exist "config.ini" (
+    set _SROOT=
+    for /f "usebackq delims=" %%P in (`python -c "import configparser,sys; c=configparser.RawConfigParser(); c.read('config.ini'); print(c.get('paths','server_root','') if c.has_option('paths','server_root') else '')" 2^>nul`) do set _SROOT=%%P
+    if defined _SROOT (
+        if not exist "!_SROOT!\ShooterGame\Binaries\Win64\ArkAscendedServer.exe" (
+            echo.
+            echo  *** ARK SERVER NOT INSTALLED ***
+            echo  Server files not found at: !_SROOT!
+            echo  The controller will download them automatically via SteamCMD.
+            echo  First-time install can take 20-40 min depending on your connection.
+            echo  The server will start automatically once the download is complete.
+            echo.
+        )
+    )
+)
 
 :: ── Controller ─────────────────────────────────────────────────────────────────
 :: Only start if not already running (check PID file, then verify PID is alive)
