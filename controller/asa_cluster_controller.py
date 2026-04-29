@@ -96,7 +96,7 @@ AUTOSAVE_SECONDS                = _ci_int("timers", "autosave_minutes",         
 CLUSTER_SHUTDOWN_DELAY_SECONDS  = _ci_int("timers", "cluster_shutdown_minutes",      30,  multiplier=60)
 SERVER_START_TIMEOUT_SECONDS    = _ci_int("timers", "server_start_timeout_seconds",  300)
 SAVE_BEFORE_EXIT_WAIT_SECONDS   = _ci_int("timers", "save_before_exit_seconds",      10)
-POST_SHUTDOWN_WAIT_SECONDS      = _ci_int("timers", "post_shutdown_wait_seconds",    60)
+POST_SHUTDOWN_WAIT_SECONDS      = _ci_int("timers", "post_shutdown_wait_seconds",    30)
 CRASH_DETECTION_THRESHOLD       = _ci_int("timers", "crash_detection_threshold",     5)
 SHUTDOWN_WARNING_MINUTES        = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 
@@ -974,6 +974,7 @@ def _patch_game_ini() -> None:
         for lk, (ck, val) in desired_lower.items():
             if lk not in seen:
                 result.append(f"{ck}={val}\n")
+                seen.add(lk)
     if not seen:
         result.append(f"\n{section}\n")
         for ck, val in desired.items():
@@ -1034,6 +1035,7 @@ def _patch_engine_ini() -> None:
         for lk, (ck, val) in desired_lower.items():
             if lk not in seen:
                 result.append(f"{ck}={val}\n")
+                seen.add(lk)
     if not seen:
         result.append(f"\n{section}\n")
         for ck, val in desired.items():

@@ -374,7 +374,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     )
     restart_time = _ask_time_optional(
         "Daily restart time (leave blank to disable)",
-        prev_get("schedule", "restart_time", "06:00"),
+        prev_get("schedule", "restart_time", ""),
     )
     if restart_time:
         print(f"  → Cluster will restart and update daily at {restart_time}.")
@@ -405,8 +405,10 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     print("[ Breeding  (press Enter to keep defaults) ]")
     print()
 
-    mating_interval_mult = _ask_float("Mating interval multiplier", float(prev_get("rates", "mating_interval_multiplier", "1.0")))
-    egg_hatch_speed_mult = _ask_float("Egg hatch speed multiplier",  float(prev_get("rates", "egg_hatch_speed_multiplier",  "1.0")))
+    # Read from "breeding" (current section); fall back to "rates" for configs
+    # written before the section was renamed so re-runs preserve the saved value.
+    mating_interval_mult = _ask_float("Mating interval multiplier", float(prev_get("breeding", "mating_interval_multiplier", prev_get("rates", "mating_interval_multiplier", "1.0"))))
+    egg_hatch_speed_mult = _ask_float("Egg hatch speed multiplier",  float(prev_get("breeding", "egg_hatch_speed_multiplier",  prev_get("rates", "egg_hatch_speed_multiplier",  "1.0"))))
 
     baby_mature_speed = _ask_float(
         "Baby mature speed multiplier",

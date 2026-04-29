@@ -1760,8 +1760,12 @@ def post_settings():
             if section == "cluster" and key == "rcon_password":
                 continue
             str_val = str(value)
-            # Encrypt sensitive fields before writing to disk
-            if key in SENSITIVE_KEYS and str_val:
+            if key in SENSITIVE_KEYS:
+                # Sensitive fields are stripped from the GET response so they
+                # arrive as "" when the user didn't type a new value.
+                # Skip empty submissions — never overwrite an existing secret.
+                if not str_val:
+                    continue
                 str_val = encrypt_cfg_value(str_val)
             cfg.set(section, key, str_val)
     try:
@@ -1915,7 +1919,7 @@ def get_defaults():
             "cluster_shutdown_minutes": "30",
             "server_start_timeout_seconds": "300",
             "save_before_exit_seconds": "10",
-            "post_shutdown_wait_seconds": "60",
+            "post_shutdown_wait_seconds": "30",
             "crash_detection_threshold": "5",
         },
         "backup": {
@@ -1952,16 +1956,17 @@ def get_defaults():
             "taming_speed_multiplier": "1.0",
             "harvest_amount_multiplier": "1.0",
             "difficulty_offset": "1.0",
-            "mating_interval_multiplier": "1.0",
-            "egg_hatch_speed_multiplier": "1.0",
             "global_spoiling_time_multiplier": "1.0",
             "global_item_decomposition_time_multiplier": "1.0",
             "global_corpse_decomposition_time_multiplier": "1.0",
             "crop_growth_speed_multiplier": "1.0",
-            "mating_speed_multiplier": "1.0",
             "fuel_consumption_interval_multiplier": "1.0",
         },
         "breeding": {
+            "mating_interval_multiplier": "1.0",
+            "mating_speed_multiplier": "1.0",
+            "egg_hatch_speed_multiplier": "1.0",
+            "lay_egg_interval_multiplier": "1.0",
             "baby_mature_speed_multiplier": "1.0",
             "baby_cuddle_interval_multiplier": "1.8",
             "baby_cuddle_grace_period_multiplier": "1.0",
@@ -2131,7 +2136,7 @@ const SCHEMA = [
       {s:'discord', k:'use_bot', label:'Enable Two-Way Bot (advanced)', type:'checkbox', ph:'false', visGroup:'discord-settings',
         hint:'Off = simple webhook (one-way notifications). On = full Discord bot with commands from Discord.'},
       {s:'discord', k:'webhook_url', label:'Webhook URL', ph:'https://discord.com/api/webhooks/...', wide:true, visGroup:'webhook',
-        hint:'Paste your Discord channel webhook URL — Discord → channel settings → Integrations → Webhooks → New Webhook → Copy URL'},
+        hint:'Paste your Discord webhook URL. Leave blank to keep the existing saved URL.'},
     ]},
     { title:'Notification Events', fields:[
       {s:'discord', k:'notify_server_events',  label:'Server Online',  ph:'true', visGroup:'discord-settings', hint:'Notify when a server comes online'},
@@ -2148,7 +2153,7 @@ const SCHEMA = [
         5. Fill in the fields below and save
       `},
       {s:'discord', k:'bot_token',               label:'Bot Token',               ph:'your-bot-token-here', wide:true, visGroup:'bot',
-        hint:'From Discord Developer Portal → Your App → Bot → Token'},
+        hint:'From Discord Developer Portal → Your App → Bot → Token. Leave blank to keep the existing saved token.'},
       {s:'discord', k:'notification_channel_id', label:'Notification Channel ID', ph:'123456789012345678',   visGroup:'bot',
         hint:'Channel where the bot posts events — right-click channel → Copy Channel ID'},
       {s:'discord', k:'command_channel_id',      label:'Command Channel ID',      ph:'123456789012345678',   visGroup:'bot',
@@ -2486,7 +2491,8 @@ function validateSettings(payload) {
     ['crash',    'crash_cooldown_minutes',       'Crash Cooldown (min)',          1,  60],
     ['crash',    'max_crash_restarts',           'Max Crash Restarts',            1,  10],
     ['crash',    'crash_window_minutes',         'Crash Window (min)',            1,  1440],
-    ['network',  'web_status_port',             'Dashboard Port',                1,  65535],
+    ['network',  'web_status_port',              'Dashboard Port',                1,  65535],
+    ['structures','structure_pickup_time_after_placement','Structure Pickup Time (s)',  0,  86400],
   ];
 
   // Float rules: [section, key, label, min, max]
@@ -2552,10 +2558,10 @@ function validateSettings(payload) {
     }
   }
 
-  // restart_time: must be HH:MM (24-hour) or blank
+  // restart_time: must be H:MM or HH:MM (24-hour) or blank
   const rt = (payload.schedule || {}).restart_time;
   if (rt !== undefined && rt !== '') {
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(rt)) {
+    if (!/^([0-9]|[01]\d|2[0-3]):[0-5]\d$/.test(rt)) {
       errors.push(`• Restart Time: must be in HH:MM format (24-hour) or left blank (got "${rt}")`);
     }
   }

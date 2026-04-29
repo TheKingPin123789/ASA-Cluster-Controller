@@ -84,6 +84,7 @@ def _patch_ini(path: str, section: str, desired: dict) -> None:
         for lk, (ck, val) in desired_lower.items():
             if lk not in seen:
                 result.append(f"{ck}={val}\n")
+                seen.add(lk)  # mark written so `if not seen` doesn't add a duplicate header
     if not seen:
         result.append(f"\n{section_header}\n")
         for ck, val in desired.items():
