@@ -1,167 +1,187 @@
 # ASA Cluster Controller
 
-A self-contained Windows controller for running and managing an **ARK: Survival Ascended** dedicated server cluster. It handles server startup, shutdown, updates, backups, scheduling, in-game chat commands, and exposes a web dashboard for remote management.
+A self-hosted management system for **ARK: Survival Ascended** dedicated servers on Windows.
+Run a multi-map cluster, monitor it from a web dashboard, and control it from Discord — all from one process.
 
 ---
 
 ## Features
 
-- **Multi-map cluster** — start, stop, and restart individual maps or the whole cluster
-- **Auto-install** — downloads SteamCMD and the ASA dedicated server on first run
-- **Auto-update** — checks for game updates via SteamCMD on startup (configurable)
-- **Crash detection & restore** — automatically restarts a crashed server
-- **Scheduled daily restart** — configurable restart time (default 06:00), warns players in-game before shutdown
-- **Autosave** — periodically saves all running maps via RCON
-- **Backup** — one-command or scheduled backup of all save data, with a configurable keep-N policy
-- **Whitelist** — optional `!start` whitelist; per-command tiers (Default / Whitelist-only / Admin-only)
-- **In-game chat commands** — players type `!help`, `!status`, `!start <map>`, `!stop`, `!restart` in global chat
-- **Web dashboard** — live server status, player list, admin console, controller log, settings editor
-- **Player tracking** — remembers every player who has connected (name, Steam ID, last map, last seen)
+- **Multi-map cluster** — run up to 9 ASA maps simultaneously (The Island, Ragnarok, The Center, Valguero, Scorched Earth, Aberration, Extinction, Lost Colony, Astraeos)
+- **Web dashboard** — live server status, player list, console, settings editor, whitelist/admin management
+- **Auto-restart on crash** — detects crashed servers and brings them back up automatically
+- **Daily scheduled restarts** — automatic update check + cluster-wide restart at a configured time
+- **Empty-map shutdown** — maps with no players spin down after a configurable idle timeout
+- **Discord integration** — webhook notifications or a full two-way bot with `!start`, `!stop`, `!restart` commands
+- **Encrypted config** — sensitive values (RCON password, Discord tokens) are stored encrypted using your machine's hardware GUID
+- **Setup wizard** — interactive first-run configuration; re-run any time to change settings
+- **Auto-download** — downloads SteamCMD and the ASA dedicated server automatically on first run
 
 ---
 
 ## Requirements
 
-- Windows 10 / 11
-- [Python 3.10+](https://www.python.org/downloads/) (must be on PATH)
-- Internet connection (first run downloads SteamCMD and the game server)
-
-Python packages (installed automatically by `start_controller.bat`):
-
-```
-flask
-```
+- Windows 10/11 (64-bit)
+- Python 3.11+
+- ~15 GB RAM overhead + ~12 GB per active map (e.g. 4 maps ≈ 63 GB)
+- Ports open for each map (default: 7777 + 7778 per map, RCON on 27020+)
+- Optional: a VPS with WireGuard for external access behind double-NAT
 
 ---
 
 ## Quick Start
 
-1. Clone or download this repository into a folder, e.g. `C:\ASA_Cluster`
-2. Double-click **`start_controller.bat`**
-3. On first run the setup wizard walks you through `config.ini` — fill in your cluster name, RCON password, paths, and rates
-4. SteamCMD and the ASA dedicated server are downloaded automatically
-5. The controller window and the web dashboard both open; your browser navigates to `http://localhost:5000`
+### 1. Install Python dependencies
+
+```bat
+pip install -r requirements.txt
+```
+
+### 2. Run the setup wizard
+
+```bat
+cd controller
+python setup_wizard.py
+```
+
+The wizard will:
+- Ask for cluster name, RCON password, default map, paths, rates, and credentials
+- Download SteamCMD if missing
+- Download the ASA dedicated server (~15 GB) if missing
+- Write `config.ini` (sensitive values are encrypted automatically)
+
+### 3. Start the controller
+
+Double-click `start_controller.bat` in the root folder, or:
+
+```bat
+cd controller
+python asa_cluster_controller.py
+```
+
+### 4. Open the dashboard
+
+Navigate to `http://localhost:5000` (or the port you configured).
+Log in with the username and password you set in the wizard.
 
 ---
 
 ## File Structure
 
 ```
-ASA_Cluster/
-├── start_controller.bat          # Entry point — run this
-├── requirements.txt
+ARK_ASA_Server/
 ├── controller/
-│   ├── asa_cluster_controller.py # Main controller loop
-│   ├── dashboard.py              # Flask web dashboard (port 5000)
-│   ├── setup_wizard.py           # First-run config wizard
-│   ├── admin_console.py          # Optional standalone admin console
-│   └── mcrcon.exe                # RCON client binary
-└── scripts/
-    └── start_<map>.bat           # Per-map server launch scripts
+│   ├── asa_cluster_controller.py   # Main controller process
+│   ├── dashboard.py                # Web dashboard (Flask)
+│   ├── setup_wizard.py             # Interactive setup / re-configuration
+│   ├── config_crypt.py             # Fernet encryption for sensitive config values
+│   ├── config.ini                  # Generated by wizard — DO NOT share this file
+│   ├── mcrcon.exe                  # RCON client used to communicate with servers
+│   └── logs/                       # Controller and admin logs (auto-rotated)
+├── scripts/
+│   └── launch_map.py               # Called by the controller to launch each map
+├── asa_server/                     # ARK dedicated server files (downloaded by wizard)
+├── backups/                        # World save backups
+├── start_controller.bat            # Launch the controller
+├── start_dashboard.bat             # Launch dashboard separately (optional)
+├── requirements.txt
+└── README.md
 ```
-
-Files created at runtime (not committed to git):
-
-| File | Purpose |
-|---|---|
-| `controller/config.ini` | Your cluster configuration |
-| `controller/whitelist.txt` | Whitelisted Steam IDs |
-| `controller/admin_list.txt` | Admin Steam IDs |
-| `controller/seen_players.json` | All-time player history |
-| `controller/command_categories.json` | In-game command tiers |
-| `controller/controller.log` | Controller log |
-| `controller/admin_log.txt` | Admin command log |
-| `SteamCMD/` | SteamCMD installation |
-| `asa_server/` | ASA dedicated server files |
-| `backups/` | Save backups |
 
 ---
 
 ## Configuration
 
-The setup wizard creates `controller/config.ini` on first run. You can also edit it from the dashboard (⚙ → Settings). Key sections:
+All settings are managed in two places:
 
-| Section | Key settings |
+| What | Where |
 |---|---|
-| `[cluster]` | `cluster_name`, `rcon_password`, `default_map` |
-| `[paths]` | `server_root`, `cluster_dir`, `steamcmd_path` |
-| `[performance]` | `max_active_servers`, `max_players` |
-| `[schedule]` | `restart_time` (HH:MM), `check_updates_on_startup` |
-| `[timers]` | Shutdown warnings, autosave interval, startup grace period |
-| `[rates]` | XP, taming, harvest, difficulty multipliers |
-| `[breeding]` | Maturation, cuddle, imprint multipliers |
+| RCON password, login credentials | **setup_wizard.py only** |
+| Game rates, limits, timers, Discord | **Dashboard → Settings** or **setup_wizard.py** |
 
-Changes to `config.ini` require a controller restart to take effect.
-
----
-
-## Web Dashboard
-
-Open `http://localhost:5000` in your browser.
-
-### Server cards
-Each configured map shows its status (Online / Starting / Offline), player count, and Start / Stop / Restart buttons.
-
-### Controls tab
-- Start / stop / restart the whole cluster or individual maps
-- Save all maps, trigger an immediate backup
-- View online players — click any player to see their Steam ID, current map, last-seen time, and whitelist status
-
-### Commands tab
-- Toggle the `!start` whitelist on/off
-- Assign in-game commands to Default / Whitelist / Admin tiers
-- Add or remove players from the whitelist and admin list
-
-### Admin Console
-Send commands to the controller (same commands available in-game with `!`) and view the response log with colour-coded output.
-
-### Controller Log
-Tail of `controller.log` with auto-scroll.
-
-### Settings (⚙)
-Edit all `config.ini` values from the browser, grouped into tabs: Cluster, Paths, Performance, Schedule & Backup, Timers, Game Rates, Breeding.
-
----
-
-## In-Game Commands
-
-Players type these in **global chat**:
-
-| Command | Default | Whitelist | Admin |
-|---|---|---|---|
-| `!help` | ✔ | ✔ | ✔ |
-| `!status` | ✔ | ✔ | ✔ |
-| `!start <map>` | — | ✔ | ✔ |
-| `!stop` | — | — | ✔ |
-| `!restart` | — | — | ✔ |
-
-Available maps: `ragnarok`, `thecenter`, `valguero`, `theisland`, `scorchedearth`, `aberration`, `extinction`, `lostcolony`, `astraeos`
-
-Command tiers are configurable from the dashboard.
-
----
-
-## Clean Reset
-
-To wipe all runtime data and start fresh, delete:
-
-```
-controller/config.ini
-controller/whitelist.txt
-controller/admin_list.txt
-controller/seen_players.json
-controller/command_categories.json
-controller/controller.log
-controller/admin_log.txt
-controller/cluster_status.*
-controller/admin_commands.txt
-controller/restart_maps.txt
-SteamCMD/
-asa_server/
-backups/
+To change credentials or RCON password, re-run the wizard:
+```bat
+python controller/setup_wizard.py
 ```
 
-Then run `start_controller.bat` — the setup wizard will run again and SteamCMD / the server will be re-downloaded.
+Config is stored in `controller/config.ini`. Sensitive fields are written as `ENC:<token>` and can only be decrypted on the machine that wrote them.
+
+---
+
+## Maps
+
+| Key | Map |
+|---|---|
+| `theisland` | The Island |
+| `ragnarok` | Ragnarok |
+| `thecenter` | The Center |
+| `valguero` | Valguero |
+| `scorchedearth` | Scorched Earth |
+| `aberration` | Aberration |
+| `extinction` | Extinction |
+| `lostcolony` | Lost Colony |
+| `astraeos` | Astraeos |
+
+The **default map** is always kept running. Other maps start automatically when a player tries to travel to them and shut down after the idle timeout when empty.
+
+---
+
+## Discord Setup
+
+### Webhook (one-way notifications)
+1. In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy URL
+2. Dashboard → Settings → Discord → paste the URL → enable Discord Notifications
+
+### Bot (two-way commands)
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → New Application
+2. Bot tab → enable **Message Content Intent** → copy the Token
+3. OAuth2 → URL Generator → tick **bot** scope → tick Send Messages, Embed Links, Read Message History → invite the bot
+4. Enable **Developer Mode** in Discord → right-click a channel → Copy Channel ID
+5. Dashboard → Settings → Discord → enable **Two-Way Bot** → fill in token and channel IDs
+
+Bot commands (type in the command channel):
+
+| Command | Access | Description |
+|---|---|---|
+| `!help` | Everyone | List available commands |
+| `!status` | Everyone | Show which maps are online |
+| `!start <map>` | Whitelist | Start a specific map |
+| `!stop <map>` | Admin role | Stop a specific map |
+| `!restart <map>` | Admin role | Restart a specific map |
+
+---
+
+## External Access (VPS / WireGuard)
+
+If your server is behind a double-NAT (e.g. CGNAT or a router you don't control), you can use a cheap VPS as a relay:
+
+1. Set up WireGuard on a VPS with DNAT rules forwarding ARK ports to your home PC
+2. Re-run the setup wizard → answer **yes** to "live server" → enter the VPS public IP
+3. ARK will advertise the VPS IP to Steam; game traffic routes through the tunnel
+
+---
+
+## Updating
+
+```bat
+git pull
+pip install -r requirements.txt
+```
+
+After updating, restart the controller — it automatically backfills any new config keys with safe defaults, so existing `config.ini` files continue to work without re-running the wizard.
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| Dashboard won't load | Check the controller window for the port it's listening on |
+| Can't connect from outside | Check firewall allows the dashboard port; check WireGuard is running |
+| RCON errors | Confirm the RCON password matches `GameUserSettings.ini` on the server |
+| Encrypted values not working | `config.ini` was copied from another machine — re-run `setup_wizard.py` |
+| Map won't start | Check `logs/controller.log`; ensure server files are complete |
+| Crash loop | Controller gives up after `max_crash_restarts` — check the map log for the root cause |
 
 ---
 

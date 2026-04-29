@@ -5,6 +5,7 @@ import sys
 import json
 import time
 import shutil
+import ctypes
 import asyncio
 import datetime
 import threading
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from setup_wizard import prompt_setup_on_startup
+from config_crypt import decrypt_config
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
@@ -41,6 +43,7 @@ CONTROLLER_PID_FILE      = os.path.join(BASE_DIR, "controller.pid")
 
 # ── Load config (wizard runs here if needed) ──────────────
 _cfg = prompt_setup_on_startup()
+decrypt_config(_cfg)   # decrypt ENC: fields in-memory (never writes back)
 
 def _ci(section: str, key: str, fallback: str = "") -> str:
     try:
@@ -73,10 +76,10 @@ SERVER_ROOT    = _ci("paths",   "server_root",   os.path.join(os.path.dirname(BA
 CLUSTER_DIR    = _ci("paths",   "cluster_dir",   rf"{SERVER_ROOT}\cluster")
 STEAMCMD_EXE   = _ci("paths",   "steamcmd_path", os.path.join(os.path.splitdrive(BASE_DIR)[0] + os.sep, "SteamCMD", "steamcmd.exe"))
 HOST           = _ci("network", "rcon_host",     "127.0.0.1")
-DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "ragnarok")
+DEFAULT_SERVER_KEY = _ci("cluster", "default_map", "theisland")
 
 # ── Limits (formerly [performance]) ───────────────────────────────────────────
-MAX_ACTIVE_SERVERS       = _ci_int("limits", "max_active_servers",    3)
+_USER_MAX_ACTIVE_SERVERS = _ci_int("limits", "max_active_servers",    0)  # 0 = auto from RAM
 MAX_PLAYERS              = _ci_int("limits", "max_players",           70)
 MAX_TAMED_DINOS          = _ci_int("limits", "max_tamed_dinos",       5000)
 MAX_PERSONAL_TAMED_DINOS = _ci_int("limits", "max_personal_tamed_dinos", 40)
@@ -93,7 +96,7 @@ AUTOSAVE_SECONDS                = _ci_int("timers", "autosave_minutes",         
 CLUSTER_SHUTDOWN_DELAY_SECONDS  = _ci_int("timers", "cluster_shutdown_minutes",      30,  multiplier=60)
 SERVER_START_TIMEOUT_SECONDS    = _ci_int("timers", "server_start_timeout_seconds",  300)
 SAVE_BEFORE_EXIT_WAIT_SECONDS   = _ci_int("timers", "save_before_exit_seconds",      10)
-POST_SHUTDOWN_WAIT_SECONDS      = _ci_int("timers", "post_shutdown_wait_seconds",    60)
+POST_SHUTDOWN_WAIT_SECONDS      = _ci_int("timers", "post_shutdown_wait_seconds",    30)
 CRASH_DETECTION_THRESHOLD       = _ci_int("timers", "crash_detection_threshold",     5)
 SHUTDOWN_WARNING_MINUTES        = {60, 30, 15, 10, 5, 4, 3, 2, 1}
 
@@ -301,6 +304,8 @@ class ServerState:
     # True only when the server went offline due to a crash (not a manual stop)
     # — guards the cooldown-retry so intentional shutdowns don't auto-restart
     crash_offline: bool = False
+    # Set when crash_restart_count hits the max — cleared on manual restart
+    crash_limit_reached: bool = False
     # PID of the last Popen'd server process — used to force-kill on shutdown
     process_pid: int = 0
 
@@ -319,6 +324,11 @@ class ClusterState:
 
 SERVER_STATES: Dict[str, ServerState] = {k: ServerState(cfg=v) for k, v in SERVERS.items()}
 CLUSTER = ClusterState()
+
+# Reentrant lock — ensures the Discord bot thread and the main loop never
+# modify SERVER_STATES / CLUSTER at the same time.  RLock allows the same
+# thread to acquire it multiple times (e.g. handle_admin_command → start_server).
+_cluster_lock = threading.RLock()
 
 
 def _rotate_log() -> None:
@@ -341,7 +351,24 @@ def _rotate_log() -> None:
             pass
 
 
+_last_log_rotate_day: Optional[int] = None
+
+def _maybe_rotate_log_daily() -> None:
+    """If no scheduled restart is configured, rotate the log once per calendar day."""
+    global _last_log_rotate_day
+    if RESTART_TIME:
+        return  # scheduled restart handles rotation via controller reboot
+    today = time.localtime().tm_yday
+    if _last_log_rotate_day is None:
+        _last_log_rotate_day = today
+        return
+    if today != _last_log_rotate_day:
+        _last_log_rotate_day = today
+        _rotate_log()
+
+
 def log(msg: str) -> None:
+    _maybe_rotate_log_daily()
     line = f"[{time.strftime('%H:%M:%S')}] {msg}"
     print(line, flush=True)
     target = ADMIN_LOG_FILE if _is_admin_context else LOG_FILE
@@ -582,6 +609,11 @@ DISCORD_BOT = DiscordBot()
 
 def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None:
     """Send a Discord notification via bot or webhook depending on config."""
+    # Master switch — disabled by default, must be explicitly enabled in settings
+    enabled = (_cfg.get("discord", "discord_enabled") if _cfg.has_option("discord", "discord_enabled") else "false").strip().lower() == "true"
+    if not enabled:
+        return
+
     # Silenced after cluster shutdown message — suppress notifications while
     # servers wind down or starting maps come online during a shutdown sequence
     if CLUSTER.discord_silent:
@@ -617,13 +649,27 @@ def discord_notify(message: str, color: int = _DC_BLUE, title: str = "") -> None
     threading.Thread(target=_post, daemon=True).start()
 
 
+def _is_valid_steam_id(sid: str) -> bool:
+    """Steam IDs are exactly 17 decimal digits."""
+    return bool(re.match(r'^\d{17}$', sid.strip()))
+
+
 def load_whitelist() -> set:
     """Return set of whitelisted Steam IDs. Empty set = whitelist disabled (all allowed)."""
     if not os.path.exists(WHITELIST_FILE):
         return set()
     try:
         with open(WHITELIST_FILE, encoding="utf-8") as f:
-            return {line.strip() for line in f if line.strip() and not line.startswith("#")}
+            valid = set()
+            for line in f:
+                sid = line.strip()
+                if not sid or sid.startswith("#"):
+                    continue
+                if _is_valid_steam_id(sid):
+                    valid.add(sid)
+                else:
+                    log(f"Whitelist: ignoring malformed entry '{sid}'")
+            return valid
     except Exception:
         return set()
 
@@ -703,6 +749,7 @@ def _read_live_cfg() -> configparser.RawConfigParser:
         c.read(os.path.join(BASE_DIR, "config.ini"), encoding="utf-8")
     except Exception:
         pass
+    decrypt_config(c)
     return c
 
 
@@ -927,6 +974,7 @@ def _patch_game_ini() -> None:
         for lk, (ck, val) in desired_lower.items():
             if lk not in seen:
                 result.append(f"{ck}={val}\n")
+                seen.add(lk)
     if not seen:
         result.append(f"\n{section}\n")
         for ck, val in desired.items():
@@ -987,6 +1035,7 @@ def _patch_engine_ini() -> None:
         for lk, (ck, val) in desired_lower.items():
             if lk not in seen:
                 result.append(f"{ck}={val}\n")
+                seen.add(lk)
     if not seen:
         result.append(f"\n{section}\n")
         for ck, val in desired.items():
@@ -1000,6 +1049,11 @@ def _patch_engine_ini() -> None:
 
 
 def start_server(key: str) -> bool:
+    with _cluster_lock:
+        return _start_server_locked(key)
+
+
+def _start_server_locked(key: str) -> bool:
     # Never launch a server while a shutdown or cluster-stop is in progress
     if CLUSTER.shutdown_scheduled or CLUSTER.cluster_stopped:
         log(f"start_server({key}) blocked — cluster shutdown in progress")
@@ -1139,6 +1193,7 @@ def stop_server_safe(state: ServerState, reason: str) -> None:
     state.last_crash_restart_at  = None
     state.crash_window_start     = None
     state.crash_restart_count    = 0
+    state.crash_limit_reached    = False
 
 
 def split_chat_sender_and_message(line: str):
@@ -1249,8 +1304,9 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
             announce(origin, f"{state.cfg.display_name} is already online or starting.")
             return
         active = len(active_servers())
-        if active >= MAX_ACTIVE_SERVERS:
-            announce(origin, f"Max servers active ({active}/{MAX_ACTIVE_SERVERS})")
+        _limit = _get_effective_max_servers()
+        if active >= _limit:
+            announce(origin, f"Max servers active ({active}/{_limit}) — not enough RAM to start another")
             return
         start_server(requested)
         announce(origin, f"{state.cfg.display_name} is starting up — give it a few minutes.")
@@ -1289,7 +1345,12 @@ def handle_command(origin: ServerState, sender_name: Optional[str], steam_id: Op
 
 
 def restart_single_server(key: str, origin: Optional["ServerState"] = None) -> None:
-    state = SERVER_STATES[key]
+    state = SERVER_STATES.get(key)
+    if state is None:
+        log(f"restart_single_server: unknown key '{key}'")
+        if origin is not None:
+            announce(origin, f"Unknown map: {key}")
+        return
     if not state.is_running:
         log(f"{key} is not running")
         if origin is not None:
@@ -1304,12 +1365,15 @@ def restart_single_server(key: str, origin: Optional["ServerState"] = None) -> N
 
 
 def _add_to_whitelist(steam_id: str) -> None:
+    if not _is_valid_steam_id(steam_id):
+        log(f"Whitelist: rejected invalid Steam ID '{steam_id}' — must be exactly 17 digits")
+        return
     try:
         existing: set = set()
         if os.path.exists(WHITELIST_FILE):
             with open(WHITELIST_FILE, encoding="utf-8") as f:
                 existing = {ln.strip() for ln in f if ln.strip() and not ln.startswith("#")}
-        existing.add(steam_id)
+        existing.add(steam_id.strip())
         with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(sorted(existing)) + "\n")
         log(f"Whitelist: added {steam_id}")
@@ -1690,6 +1754,11 @@ def schedule_cluster_restart(delay_seconds: int = 0) -> None:
 
 
 def handle_admin_command(command: str) -> None:
+    with _cluster_lock:
+        _handle_admin_command_locked(command)
+
+
+def _handle_admin_command_locked(command: str) -> None:
     lowered = command.strip().lower()
     if not lowered:
         return
@@ -1817,8 +1886,9 @@ def handle_admin_command(command: str) -> None:
             return
 
         active = len(active_servers())
-        if active >= MAX_ACTIVE_SERVERS:
-            log(f"Max servers active ({active}/{MAX_ACTIVE_SERVERS})")
+        _limit = _get_effective_max_servers()
+        if active >= _limit:
+            log(f"Max servers active ({active}/{_limit}) — not enough RAM to start another")
             return
 
         if not start_server(requested):
@@ -1848,14 +1918,16 @@ def poll_admin_commands() -> None:
         return
 
     try:
-        with open(ADMIN_COMMAND_FILE, "r", encoding="utf-8") as f:
+        # Open in r+ so read and truncate happen on the same file handle,
+        # closing the race window where the dashboard could write new commands
+        # between a separate read-close and write-open.
+        with open(ADMIN_COMMAND_FILE, "r+", encoding="utf-8") as f:
             commands = [line.strip() for line in f if line.strip()]
+            f.seek(0)
+            f.truncate()
 
         if not commands:
             return
-
-        with open(ADMIN_COMMAND_FILE, "w", encoding="utf-8") as f:
-            f.write("")
 
         for command in commands:
             global _is_admin_context
@@ -1863,6 +1935,8 @@ def poll_admin_commands() -> None:
             try:
                 log(f"ADMIN CMD: {command}")
                 handle_admin_command(command)
+            except Exception as exc:
+                log(f"ADMIN CMD ERROR ({command}): {exc}")
             finally:
                 _is_admin_context = False
 
@@ -2021,10 +2095,15 @@ def update_running_status(state: ServerState) -> None:
         # are already in-game. ListPlayers is too unreliable in ASA for this.
         if just_came_online:
             sync_players_from_game_log(state)
-            # sync_players_from_game_log overwrites player_count (via the log)
-            # but not player_list (from ListPlayers). Re-align player_count so
-            # the dashboard card and the player list always agree.
-            state.player_count = len(state.player_list)
+            # sync_players_from_game_log is the authoritative source — rebuild
+            # player_list from the confirmed state.players set so the dashboard
+            # card and player list always agree with the log-based count.
+            known = {p["id"]: p["name"] for p in state.player_list if p.get("id")}
+            state.player_list = [
+                {"id": pid, "name": known.get(pid, "Unknown")}
+                for pid in state.players
+            ]
+            state.player_count = len(state.players)
 
         if just_came_online and state.pending_online_announcement:
             announce_all_online(f"{state.cfg.display_name} is up and running")
@@ -2104,6 +2183,7 @@ def update_running_status(state: ServerState) -> None:
                 log(f"CRASH LIMIT REACHED: {state.cfg.key} has crashed "
                     f"{state.crash_restart_count}x in the last "
                     f"{int(_window // 60)} min — staying offline")
+                state.crash_limit_reached = True
                 announce_all_online(
                     f"{state.cfg.display_name} has crashed too many times and will stay offline")
                 if _dc_flag("notify_crash_events"):
@@ -2373,6 +2453,47 @@ def ensure_default_server() -> None:
     start_server(DEFAULT_SERVER_KEY)
 
 
+class _MEMSTATEX(ctypes.Structure):
+    _fields_ = [
+        ("dwLength",                 ctypes.c_ulong),
+        ("dwMemoryLoad",             ctypes.c_ulong),
+        ("ullTotalPhys",             ctypes.c_ulonglong),
+        ("ullAvailPhys",             ctypes.c_ulonglong),
+        ("ullTotalPageFile",         ctypes.c_ulonglong),
+        ("ullAvailPageFile",         ctypes.c_ulonglong),
+        ("ullTotalVirtual",          ctypes.c_ulonglong),
+        ("ullAvailVirtual",          ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+def _get_ram_gb() -> tuple:
+    """Return (total_gb, available_gb) from the Windows memory API."""
+    try:
+        stat = _MEMSTATEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        total     = round(stat.ullTotalPhys  / (1024 ** 3), 1)
+        available = round(stat.ullAvailPhys  / (1024 ** 3), 1)
+        return total, available
+    except Exception:
+        return None, None
+
+
+def _get_effective_max_servers() -> int:
+    """Auto-calculate concurrent map limit from total RAM (12 GB/map + 15 GB overhead).
+    If the user sets max_active_servers > 0 in config it is used as an additional
+    lower cap — they can never exceed what the RAM supports."""
+    total, _ = _get_ram_gb()
+    if total and total > 15:
+        ram_limit = max(1, int((total - 15) / 12))
+    else:
+        ram_limit = len(SERVER_STATES)  # RAM unknown — don't block
+    if _USER_MAX_ACTIVE_SERVERS > 0:
+        return min(_USER_MAX_ACTIVE_SERVERS, ram_limit)
+    return ram_limit
+
+
 def write_cluster_status() -> None:
     total_players = sum(state.player_count for state in SERVER_STATES.values())
     running = [state.cfg.key for state in SERVER_STATES.values() if state.is_running]
@@ -2406,6 +2527,8 @@ def write_cluster_status() -> None:
             "pending_restart": state.pending_restart,
             "player_list": state.player_list,
             "crash_restart_count": state.crash_restart_count,
+            "crash_limit_reached": state.crash_limit_reached,
+            "online_since": state.online_since,
         }
 
     cluster_shutdown_in = None
@@ -2435,6 +2558,13 @@ def write_cluster_status() -> None:
     server_exe = os.path.join(SERVER_ROOT, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
     server_found = os.path.exists(server_exe)
 
+    ram_total, ram_available = _get_ram_gb()
+    running_map_count = sum(
+        1 for s in SERVER_STATES.values() if s.is_running or s.is_starting
+    )
+    # 12 GB per running/starting map + 15 GB for OS and other services
+    ram_required = running_map_count * 12 + 15
+
     payload = {
         "cluster_name": CLUSTER_NAME,
         "max_players": MAX_PLAYERS,
@@ -2447,6 +2577,11 @@ def write_cluster_status() -> None:
         "whitelist_active": whitelist_active,
         "steamcmd_found": steamcmd_found,
         "server_found": server_found,
+        "ram_total_gb": ram_total,
+        "ram_available_gb": ram_available,
+        "ram_required_gb": ram_required,
+        "max_concurrent_maps": _get_effective_max_servers(),
+        "ram_max_maps": max(1, int((ram_total - 15) / 12)) if ram_total and ram_total > 15 else None,
         "timestamp": now,
     }
 

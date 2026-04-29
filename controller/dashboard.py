@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import shutil
 import signal
 import hashlib
 import logging
@@ -8,6 +9,7 @@ import secrets
 import subprocess
 import configparser
 from functools import wraps
+from config_crypt import decrypt_config, encrypt_cfg_value, SENSITIVE_KEYS
 from flask import Flask, jsonify, request, render_template_string, session, redirect, url_for
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
@@ -41,25 +43,27 @@ def _get_auth_cfg():
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
+    decrypt_config(cfg)
     return cfg
 
 
 def _ensure_secret_key() -> str:
     """Return the session secret key, auto-generating and saving it if missing."""
+    from config_crypt import decrypt_cfg_value, encrypt_cfg_value
     cfg = configparser.RawConfigParser()
     try:
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
     if cfg.has_option("auth", "secret_key"):
-        key = cfg.get("auth", "secret_key").strip()
-        if key:
-            return key
-    # Generate a new key and persist it
+        raw = cfg.get("auth", "secret_key").strip()
+        if raw:
+            return decrypt_cfg_value(raw)  # decrypt ENC: if present
+    # Generate a new key and persist it encrypted
     key = secrets.token_hex(32)
     if not cfg.has_section("auth"):
         cfg.add_section("auth")
-    cfg.set("auth", "secret_key", key)
+    cfg.set("auth", "secret_key", encrypt_cfg_value(key))
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             cfg.write(f)
@@ -69,7 +73,25 @@ def _ensure_secret_key() -> str:
 
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using PBKDF2-SHA256 with a random salt.
+    Format: pbkdf2:<salt_hex>:<hash_hex>"""
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return f"pbkdf2:{salt.hex()}:{key.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """Verify a password against a stored hash (PBKDF2 or legacy SHA256)."""
+    if stored.startswith("pbkdf2:"):
+        try:
+            _, salt_hex, hash_hex = stored.split(":", 2)
+            salt = bytes.fromhex(salt_hex)
+            key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+            return key.hex() == hash_hex
+        except Exception:
+            return False
+    # Legacy SHA256 — still accepts old hashes but dashboard will prompt re-save via wizard
+    return hashlib.sha256(password.encode()).hexdigest() == stored
 
 
 def _check_credentials(username: str, password: str) -> bool:
@@ -81,7 +103,7 @@ def _check_credentials(username: str, password: str) -> bool:
         # This protects against config corruption resetting access to 'admin'.
         # Run reset_password.bat (or restart the dashboard fresh) to restore defaults.
         return False
-    return username == stored_user and _hash_password(password) == stored_hash
+    return username == stored_user and _verify_password(password, stored_hash)
 
 
 def _auth_enabled() -> bool:
@@ -108,7 +130,10 @@ def login_required(f):
         if _auth_enabled() and not session.get("logged_in"):
             if request.path.startswith("/api/"):
                 return jsonify({"error": "Unauthorized"}), 401
-            return redirect(url_for("login_page", next=request.path))
+            # Use no-store so browsers never cache the login redirect
+            resp = redirect(url_for("login_page", next=request.path))
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
         return f(*args, **kwargs)
     return decorated
 
@@ -120,6 +145,17 @@ def _get_web_port() -> int:
         return int(cfg.get("network", "web_status_port"))
     except Exception:
         return 5000
+
+
+def _get_dashboard_host() -> str:
+    """Return 0.0.0.0 if dashboard_public=true, else 127.0.0.1 (localhost only)."""
+    cfg = configparser.RawConfigParser()
+    try:
+        cfg.read(CONFIG_FILE, encoding="utf-8")
+        public = cfg.get("network", "dashboard_public", fallback="false").strip().lower()
+        return "0.0.0.0" if public == "true" else "127.0.0.1"
+    except Exception:
+        return "127.0.0.1"
 
 # ---------------------------------------------------------------------------
 # HTML dashboard
@@ -141,9 +177,13 @@ body { background: #0f0f1a; color: #dde1e7; font-family: 'Segoe UI', sans-serif;
 
 /* Server cards */
 #cards { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2a3050; flex-shrink: 0; }
-.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 6px; padding: 9px 11px; min-width: 130px; flex: 0 1 150px; max-width: 155px; transition: border-color .2s; }
+.card { background: #1a1f36; border: 1px solid #2a3050; border-radius: 6px; padding: 9px 11px; min-width: 130px; flex: 0 1 150px; max-width: 155px; transition: border-color .2s, opacity .4s; }
 .card.online   { border-color: #16a34a; }
 .card.starting { border-color: #d97706; }
+/* When controller is offline all cards dim and buttons are disabled */
+#cards.stale .card { opacity: 0.45; pointer-events: none; }
+#cards.stale .card.online  { border-color: #2a3050; }
+#cards.stale .card.starting { border-color: #2a3050; }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .card-name { font-weight: 600; font-size: 14px; }
 .badge { padding: 2px 6px; border-radius: 3px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
@@ -260,6 +300,32 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 .cm-body ul { margin:8px 0 0 18px; color:#fca5a5; }
 .cm-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
 
+/* Controller auto-restart banner */
+#controller-alert-banner.restarting { background:#1c2340; border:1px solid #3b4a7a; color:#93c5fd; }
+#controller-alert-banner.failed     { background:#2d0f0f; border:1px solid #7f1d1d; color:#fca5a5; }
+
+/* Card action confirm modal */
+#card-confirm-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:2000; align-items:center; justify-content:center; }
+#card-confirm-modal.open { display:flex; }
+#card-confirm-box { background:#1a1f36; border:2px solid #374151; border-radius:8px; padding:22px 24px; max-width:380px; width:90%; display:flex; flex-direction:column; gap:14px; }
+#card-confirm-box.danger { border-color: #7f1d1d; }
+.ccm-title { font-size:16px; font-weight:700; color:#e2e8f0; }
+.ccm-body  { font-size:14px; color:#9ca3af; line-height:1.55; }
+.ccm-actions { display:flex; gap:8px; justify-content:flex-end; }
+
+/* Uptime badge on cards */
+.card-uptime { font-size:11px; color:#4b5563; margin-top:1px; min-height:13px; }
+
+/* RAM warning banner */
+#ram-warning-banner { display:none; margin:4px 12px 0; padding:9px 14px; background:#2d1a00; border:1px solid #92400e; border-radius:6px; color:#fbbf24; font-size:13px; line-height:1.5; }
+
+/* Toast notifications */
+#toast-container { position:fixed; bottom:16px; right:16px; display:flex; flex-direction:column-reverse; gap:6px; z-index:3000; pointer-events:none; }
+.toast { background:#1a1f36; border:1px solid #3b4a7a; border-radius:6px; padding:8px 14px; font-size:13px; color:#dde1e7; max-width:280px; animation:toastIn .15s ease; }
+.toast.join  { border-color:#16a34a; color:#4ade80; }
+.toast.leave { border-color:#4b5563; color:#9ca3af; }
+@keyframes toastIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+
 /* Settings window */
 .settings-section { margin-top: 10px; }
 .settings-section .sec-title { margin-bottom: 6px; padding-bottom:3px; border-bottom:1px solid #2a3050; }
@@ -268,10 +334,32 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 /* Responsive layout */
 @media (max-width: 720px) {
-  #main { flex-direction: column; overflow-y: auto; overflow-x: hidden; }
-  #left { width: 100% !important; min-width: 0 !important; max-height: 55vh; }
-  #right { min-height: 300px; }
-  #cards .card { flex: 1 1 120px; }
+  .btn { padding: 10px 12px; }
+  .btn-sm { padding: 8px 10px; }
+  /* Prevent any element from causing a horizontal scrollbar */
+  html { overflow-x: hidden; }
+  body { font-size: 15px; overflow-x: hidden; overflow-y: auto; height: auto; max-width: 100vw; }
+  #header, #cards, #main, #left, #right, #right-tab-content,
+  #console-wrap, #log-wrap, .tab-panel { max-width: 100%; box-sizing: border-box; }
+  #main { flex-direction: column; overflow: visible; gap: 6px; padding: 6px 8px; }
+  #left  { width: 100% !important; min-width: 0 !important; max-height: none; }
+  #right { min-height: 0; }
+  /* Cap the output areas so tabs + input bar stay visible without huge scrolling */
+  #console-out { flex: none; height: 38vh; max-height: 380px; }
+  #log         { flex: none; height: 38vh; max-height: 380px; }
+  #cards { gap: 6px; padding: 8px; }
+  #cards .card { flex: 1 1 140px; max-width: none; }
+  .settings-grid { grid-template-columns: 1fr; }
+  /* Remove fixed min-width so modals don't bleed off narrow screens */
+  #player-modal-box { min-width: 0; width: 96%; padding: 16px; }
+  #card-confirm-box, #confirm-modal-box { width: 96%; padding: 16px; }
+}
+@media (max-width: 480px) {
+  #header { flex-wrap: wrap; gap: 6px; }
+  #header .title { font-size: 16px; }
+  .btn-sm { font-size: 12px; padding: 8px 10px; }
+  .card-name { font-size: 13px; }
+  #cards .card { flex: 1 1 100%; max-width: none; }
 }
 </style>
 </head>
@@ -295,10 +383,14 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 <div id="cards"><!-- injected by JS --></div>
 
+<div id="ram-warning-banner"></div>
+
 <div id="cluster-offline-banner" style="display:none; margin:10px 12px 0; padding:12px 16px; background:#131825; border:1px solid #2a3050; border-radius:6px; color:#9ca3af; font-size:13px; line-height:1.6;">
   <span style="font-size:15px; font-weight:600; color:#e2e8f0;">Cluster is offline</span><br>
   Press <strong style="color:#16a34a;">Start Cluster</strong> to bring all maps online, or use the <strong style="color:#16a34a;">Start</strong> button on any map card above to start a single map.
 </div>
+
+<div id="controller-alert-banner" style="display:none; margin:6px 12px 0; padding:11px 16px; border-radius:6px; font-size:13px; line-height:1.6;"></div>
 
 <div id="main">
   <!-- LEFT: controls / whitelist / settings tabs -->
@@ -386,7 +478,10 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
       <!-- Whitelisted players -->
       <div class="sec">
-        <div class="sec-title">Whitelisted Players</div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <div class="sec-title" style="margin-bottom:0;">Whitelisted Players</div>
+          <button class="btn btn-blue btn-sm" onclick="whitelistAllOnline()" title="Add all currently online players to whitelist">+ All Online</button>
+        </div>
         <div style="display:flex; gap:5px; margin-bottom:6px;">
           <input type="text" id="wl-add-input" placeholder="Steam ID to add..." style="flex:1;">
           <button class="btn btn-green btn-sm" onclick="addWlPlayer()">Add</button>
@@ -449,6 +544,20 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
   </div>
 </div>
 
+<div id="toast-container"></div>
+
+<!-- Card action (Stop / Restart) confirmation modal -->
+<div id="card-confirm-modal" onclick="if(event.target===this)closeCcm()">
+  <div id="card-confirm-box">
+    <div class="ccm-title" id="ccm-title">Confirm</div>
+    <div class="ccm-body"  id="ccm-body"></div>
+    <div class="ccm-actions">
+      <button class="btn btn-gray" onclick="closeCcm()">Cancel</button>
+      <button class="btn" id="ccm-confirm-btn" onclick="confirmCcm()">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- Force-shutdown confirmation modal -->
 <div id="confirm-modal" onclick="if(event.target===this)cancelForceShutdown()">
   <div id="confirm-modal-box">
@@ -478,7 +587,7 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
       <span id="pm-status-dot" class="ap-dot"></span>
       <div class="pm-title" id="pm-name"></div>
     </div>
-    <div class="pm-row"><div class="pm-label">Steam ID</div><div class="pm-value mono" id="pm-id"></div></div>
+    <div class="pm-row"><div class="pm-label">Steam ID</div><div style="display:flex;align-items:center;gap:6px;"><div class="pm-value mono" id="pm-id"></div><button class="btn btn-gray btn-sm" id="pm-copy-btn" onclick="copyPmId()" title="Copy Steam ID">⎘</button></div></div>
     <div class="pm-row"><div class="pm-label">Map</div><div class="pm-value" id="pm-map"></div></div>
     <div class="pm-row"><div class="pm-label">Last Seen</div><div class="pm-value" id="pm-last-seen"></div></div>
     <div class="pm-row"><div class="pm-label">Whitelist</div><div class="pm-value" id="pm-wl"></div></div>
@@ -501,6 +610,91 @@ let lastAdminLine        = '';
 let timerTarget          = null;   // unix seconds
 let timerLabel           = '';
 let timerColor           = '#6b7280';
+
+// ── Toast notifications ───────────────────────────────────────────────────────
+let _prevPlayers   = {};   // steamId -> {name, map}
+let _initialPoll   = true; // suppress toasts on first load
+
+function _showToast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  const container = document.getElementById('toast-container');
+  container.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 4000);
+  setTimeout(() => el.remove(), 4400);
+}
+
+function _checkPlayerChanges(data) {
+  if (!data || !data.servers) return;
+  const current = {};
+  for (const [, s] of Object.entries(data.servers)) {
+    for (const p of (s.player_list || [])) {
+      if (p.id) current[p.id] = { name: p.name || p.id, map: s.display_name };
+    }
+  }
+  if (!_initialPoll) {
+    for (const [id, info] of Object.entries(current)) {
+      if (!_prevPlayers[id]) _showToast(`${info.name} joined ${info.map}`, 'join');
+    }
+    for (const [id, info] of Object.entries(_prevPlayers)) {
+      if (!current[id]) _showToast(`${info.name} left ${info.map}`, 'leave');
+    }
+  }
+  _prevPlayers  = current;
+  _initialPoll  = false;
+}
+
+// ── Command debounce ──────────────────────────────────────────────────────────
+let _lastCmdStr  = '';
+let _lastCmdTime = 0;
+const _CMD_DEBOUNCE_MS = 3000;
+
+// ── Copy Steam ID ─────────────────────────────────────────────────────────────
+function copyPmId() {
+  const id  = document.getElementById('pm-id').textContent;
+  const btn = document.getElementById('pm-copy-btn');
+  navigator.clipboard.writeText(id).then(() => {
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = '⎘'; }, 1500);
+  }).catch(() => {});
+}
+
+// ── Whitelist all online ──────────────────────────────────────────────────────
+async function whitelistAllOnline() {
+  const r = await apiFetch('/api/whitelist/add-all-online', { method: 'POST' });
+  if (!r) return;
+  const d = await r.json();
+  if (d.error)   { alert('Error: ' + d.error); return; }
+  if (!d.added || !d.added.length) { alert('No players are currently online.'); return; }
+  const names = d.added.map(p => p.name || p.id).join(', ');
+  alert(`Added ${d.added.length} player(s) to whitelist:\n${names}`);
+  loadWlTab();
+}
+
+// ── RAM warning ───────────────────────────────────────────────────────────────
+let _ramMaxMaps = null;  // raw RAM-based limit, updated each poll
+
+function _updateRamWarning(data) {
+  if (data.ram_max_maps != null) _ramMaxMaps = data.ram_max_maps;
+  const el = document.getElementById('ram-warning-banner');
+  if (!el) return;
+  const maxMaps = data.max_concurrent_maps;
+  const total   = data.ram_total_gb;
+  if (!maxMaps || total == null) { el.style.display = 'none'; return; }
+  const running = Object.values(data.servers || {}).filter(s => s.is_running || s.is_starting).length;
+  // Warn when at capacity — the system RAM can't comfortably handle another map
+  if (running >= maxMaps) {
+    const avail = data.ram_available_gb != null ? data.ram_available_gb.toFixed(1) + ' GB' : '? GB';
+    const used  = running * 12 + 15;
+    el.style.display = 'block';
+    el.innerHTML = `&#9888; <strong>Low RAM:</strong> ${avail} available, ` +
+      `${running} of ${maxMaps} map(s) + 15 GB overhead = ${used} GB. ` +
+      `Servers may crash or fail to start.`;
+  } else {
+    el.style.display = 'none';
+  }
+}
 
 // ── Left tabs ────────────────────────────────────────────────────────────────
 const LEFT_TABS = ['controls','whitelist'];
@@ -657,7 +851,29 @@ function switchRightTab(name) {
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
+// Commands that cause the controller to be busy (saving/stopping servers)
+// for an extended period — suppress auto-restart while they're running.
+const _BUSY_COMMANDS = ['shutdown cluster', 'shutdown cluster now', 'force shutdown cluster',
+                        'restart', 'restart now'];
+const _BUSY_SUPPRESS_MS = 10 * 60 * 1000; // 10 minutes
+
 function cmd(command) {
+  // Debounce — ignore the same command if sent within 3 seconds (accidental double-click)
+  const now = Date.now();
+  if (command === _lastCmdStr && now - _lastCmdTime < _CMD_DEBOUNCE_MS) return;
+  _lastCmdStr  = command;
+  _lastCmdTime = now;
+
+  const lower = command.trim().toLowerCase();
+  if (_BUSY_COMMANDS.some(c => lower === c || lower.startsWith(c + ' '))) {
+    // Controller will be busy — suppress auto-restart for the busy window.
+    // Using a timestamp instead of a boolean so overlapping commands each
+    // extend the deadline rather than racing to clear a shared flag.
+    _suppressUntil   = Date.now() + _BUSY_SUPPRESS_MS;
+    _restartAttempts = 0;
+    _stopWatcher();
+    _clearControllerBanner();
+  }
   apiFetch('/api/command', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -669,6 +885,8 @@ function cmd(command) {
 function restartProcess(which) {
   const label = which === 'controller' ? 'Controller' : 'Dashboard';
   if (!confirm('Restart the ' + label + ' process?\n\nThe ' + label.toLowerCase() + ' window will close and reopen automatically.')) return;
+  // Mark as deliberate so the auto-restart logic doesn't also fire
+  if (which === 'controller') { _suppressUntil = Date.now() + _BUSY_SUPPRESS_MS; _restartAttempts = 0; _stopWatcher(); _clearControllerBanner(); }
   apiFetch('/api/restart/' + which, {method: 'POST'})
     .then(r => r ? r.json() : null)
     .then(d => {
@@ -925,11 +1143,59 @@ function closePlayerModal() {
   document.getElementById('player-modal').classList.remove('open');
 }
 
+// ── Card-action confirm modal ─────────────────────────────────────────────────
+let _ccmAction = null;
+function openCcm(key, action, displayName) {
+  _ccmAction = { key, action };
+  const box = document.getElementById('card-confirm-box');
+  const isStop = action === 'stop';
+  box.className = isStop ? 'danger' : '';
+  document.getElementById('ccm-title').textContent =
+    isStop ? `Stop ${displayName}?` : `Restart ${displayName}?`;
+  document.getElementById('ccm-body').textContent =
+    isStop
+      ? `This will warn online players then shut down ${displayName}. Continue?`
+      : `${displayName} will save, restart, and be unavailable for a few minutes. Continue?`;
+  const btn = document.getElementById('ccm-confirm-btn');
+  btn.textContent  = isStop ? 'Stop' : 'Restart';
+  btn.className    = 'btn ' + (isStop ? 'btn-bright-red' : 'btn-bright-orange');
+  document.getElementById('card-confirm-modal').classList.add('open');
+}
+function closeCcm() {
+  document.getElementById('card-confirm-modal').classList.remove('open');
+  _ccmAction = null;
+}
+function confirmCcm() {
+  if (!_ccmAction) return;
+  const { key, action } = _ccmAction;
+  closeCcm();
+  // Per-map stop/restart also keeps the controller busy — suppress auto-restart
+  _suppressUntil   = Date.now() + _BUSY_SUPPRESS_MS;
+  _restartAttempts = 0;
+  _stopWatcher();
+  _clearControllerBanner();
+  if (action === 'stop')    cmd('stop '    + key);
+  if (action === 'restart') cmd('restart ' + key);
+}
+
+// ── Uptime helper ─────────────────────────────────────────────────────────────
+function fmtUptime(onlineSince) {
+  if (!onlineSince) return '';
+  const secs = Math.floor(Date.now() / 1000 - onlineSince);
+  if (!isFinite(secs) || secs < 0) return '';
+  if (secs < 60)  return `↑ ${secs}s`;
+  const m = Math.floor(secs / 60) % 60;
+  const h = Math.floor(secs / 3600) % 24;
+  const d = Math.floor(secs / 86400);
+  if (d > 0) return `↑ ${d}d ${h}h`;
+  if (h > 0) return `↑ ${h}h ${m}m`;
+  return `↑ ${m}m`;
+}
+
 // ── Server cards ─────────────────────────────────────────────────────────────
-function cardAction(key, action) {
-  if (action === 'start')   cmd('start '   + key);
-  else if (action === 'stop')    cmd('stop '    + key);
-  else if (action === 'restart') cmd('restart ' + key);
+function cardAction(key, action, displayName) {
+  if (action === 'start') { cmd('start ' + key); return; }
+  openCcm(key, action, displayName || key);
 }
 
 const cardEls = {};
@@ -957,17 +1223,22 @@ function renderCards(data) {
   document.getElementById('cluster-offline-banner').style.display = anyActive ? 'none' : '';
 
   const runCount = Object.values(data.servers).filter(s => s.is_running).length;
+  const maxMaps = data.max_concurrent_maps ? ` / ${data.max_concurrent_maps} max` : '';
   document.getElementById('status-line').textContent =
-    runCount + ' server(s) online \u00b7 ' + (data.total_players||0) + ' player(s)';
+    runCount + maxMaps + ' server(s) online \u00b7 ' + (data.total_players||0) + ' player(s)';
 
   const container = document.getElementById('cards');
   for (const [key, s] of Object.entries(data.servers)) {
     const cls    = s.is_running ? 'online' : (s.is_starting ? 'starting' : 'offline');
     const label  = s.is_running ? 'Online' : (s.is_starting ? 'Starting' : 'Offline');
     const players = s.is_running ? s.player_count + ' / ' + (data.max_players || 70) + ' player(s)' : '';
-    const crashBadge = (s.crash_restart_count > 0)
-      ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
-      : '';
+    const uptime  = s.is_running ? fmtUptime(s.online_since) : '';
+    const dn      = s.display_name;
+    const crashBadge = s.crash_limit_reached
+      ? `<span title="Crash limit reached — manual restart required" style="font-size:11px;color:#f87171;margin-left:4px;font-weight:700;">&#9888; Crash limit hit</span>`
+      : (s.crash_restart_count > 0)
+        ? `<span title="Crash restarts this window" style="font-size:11px;color:#f87171;margin-left:4px;">&#128293; ${s.crash_restart_count}</span>`
+        : '';
     // Per-server stop countdown — shown when an admin has scheduled a map shutdown
     const stopMins = (s.manual_stop_in != null)
       ? Math.ceil(s.manual_stop_in / 60)
@@ -975,6 +1246,8 @@ function renderCards(data) {
     const stopBadge = (stopMins != null)
       ? `<span title="Scheduled shutdown" style="font-size:11px;color:#fbbf24;margin-left:4px;">&#9201; ${stopMins}m</span>`
       : '';
+    const safeKey = escHtml(key);
+    const safeDn  = escHtml(dn);
 
     if (cardEls[key]) {
       const c = cardEls[key];
@@ -982,6 +1255,7 @@ function renderCards(data) {
       c.querySelector('.badge').className = 'badge ' + cls;
       c.querySelector('.badge').textContent = label;
       c.querySelector('.card-players').textContent = players;
+      c.querySelector('.card-uptime').textContent  = uptime;
       c.querySelector('.card-crash').innerHTML = crashBadge;
       c.querySelector('.card-stop-timer').innerHTML = stopBadge;
       c.querySelector('.btn-start').disabled   = s.is_running || s.is_starting;
@@ -993,7 +1267,7 @@ function renderCards(data) {
       c.dataset.key = key;
       c.innerHTML = `
         <div class="card-head">
-          <span class="card-name">${s.display_name}</span>
+          <span class="card-name">${safeDn}</span>
           <span class="badge ${cls}">${label}</span>
         </div>
         <div style="display:flex;align-items:center;min-height:16px;">
@@ -1001,10 +1275,11 @@ function renderCards(data) {
           <span class="card-crash">${crashBadge}</span>
           <span class="card-stop-timer">${stopBadge}</span>
         </div>
+        <div class="card-uptime">${uptime}</div>
         <div class="card-btns">
-          <button class="btn btn-bright-green  btn-sm btn-start"   onclick="cardAction('${key}','start')"   ${s.is_running||s.is_starting?'disabled':''}>Start</button>
-          <button class="btn btn-bright-red    btn-sm btn-stop"    onclick="cardAction('${key}','stop')"    ${!s.is_running?'disabled':''}>Stop</button>
-          <button class="btn btn-bright-orange btn-sm btn-restart" onclick="cardAction('${key}','restart')" ${!s.is_running?'disabled':''}>Restart</button>
+          <button class="btn btn-bright-green  btn-sm btn-start"   onclick="cardAction('${safeKey}','start','${safeDn}')"   ${s.is_running||s.is_starting?'disabled':''}>Start</button>
+          <button class="btn btn-bright-red    btn-sm btn-stop"    onclick="cardAction('${safeKey}','stop','${safeDn}')"    ${!s.is_running?'disabled':''}>Stop</button>
+          <button class="btn btn-bright-orange btn-sm btn-restart" onclick="cardAction('${safeKey}','restart','${safeDn}')" ${!s.is_running?'disabled':''}>Restart</button>
         </div>`;
       container.appendChild(c);
       cardEls[key] = c;
@@ -1033,13 +1308,16 @@ function setTimerFromStatus(data) {
 
 function tickTimer() {
   const el = document.getElementById('restart-timer');
-  if (!timerTarget) { el.textContent = ''; return; }
+  if (!timerTarget) { el.textContent = ''; el.title = ''; return; }
   const secs = Math.max(0, Math.round(timerTarget - Date.now() / 1000));
   const h = String(Math.floor(secs / 3600)).padStart(2, '0');
   const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
   const s = String(secs % 60).padStart(2, '0');
   el.textContent = timerLabel + ' ' + h + ':' + m + ':' + s;
   el.style.color = secs < 900 ? '#f87171' : secs < 3600 ? '#fbbf24' : timerColor;
+  // Tooltip shows the actual wall-clock time so admin knows when it fires
+  const at = new Date(timerTarget * 1000);
+  el.title = 'At ' + at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 setInterval(tickTimer, 1000);
@@ -1052,17 +1330,158 @@ async function apiFetch(url, opts) {
   return r;
 }
 
+// ── Controller auto-restart ───────────────────────────────────────────────────
+// Timeline:
+//   0 s      — page loads, 120 s startup grace starts (controller may be booting)
+//   120 s+   — grace over; stale data triggers attempt #1
+//   120 s later — if still offline, attempt #2
+//   120 s later — if still offline, attempt #3
+//   after 3 failed attempts — permanent error banner, manual action required
+//
+// Deliberate restarts (Restart Controller button) suppress auto-restart entirely.
+
+const _STARTUP_GRACE_MS  = 120_000;  // wait before first auto-restart attempt
+const _RETRY_INTERVAL_MS = 120_000;  // wait between subsequent attempts
+const _MAX_RETRIES       = 3;
+
+let _suppressUntil      = 0;   // epoch ms — auto-restart suppressed while Date.now() < this
+let _restartAttempts    = 0;
+let _autoRestartWatcher = null;
+const _startupGraceUntil = Date.now() + _STARTUP_GRACE_MS;
+
+function _showControllerBanner(cls, html) {
+  const b = document.getElementById('controller-alert-banner');
+  b.className = cls;
+  b.innerHTML = html;
+  b.style.display = cls ? '' : 'none';
+}
+
+function _clearControllerBanner() { _showControllerBanner('', ''); }
+
+function _stopWatcher() {
+  if (_autoRestartWatcher) { clearInterval(_autoRestartWatcher); _autoRestartWatcher = null; }
+}
+
+function _startRecoveryWatcher() {
+  _stopWatcher();
+  const deadline = Date.now() + _RETRY_INTERVAL_MS;
+  _autoRestartWatcher = setInterval(() => {
+    if (!_controllerLost) {
+      // Controller is back — clean up everything
+      _stopWatcher();
+      _restartAttempts = 0;
+      _clearControllerBanner();
+      return;
+    }
+    if (Date.now() >= deadline) {
+      _stopWatcher();
+      if (_restartAttempts < _MAX_RETRIES) {
+        // Try again
+        _attemptAutoRestart();
+      } else {
+        // Exhausted all retries
+        _showControllerBanner('failed',
+          '<strong>&#9888; Controller could not restart after ' + _MAX_RETRIES + ' attempts.</strong><br>' +
+          'Please restart it manually by running <em>start_controller.bat</em> or clicking ' +
+          '<em>Restart Controller</em> in the Controls panel.');
+      }
+    }
+  }, 3000);
+}
+
+async function _attemptAutoRestart() {
+  _restartAttempts++;
+  const attemptLabel = _MAX_RETRIES > 1
+    ? ` (attempt ${_restartAttempts} of ${_MAX_RETRIES})`
+    : '';
+  _showControllerBanner('restarting',
+    `<strong>&#8635; Controller went offline — attempting automatic restart${attemptLabel}…</strong><br>` +
+    `Waiting up to ${_RETRY_INTERVAL_MS / 1000} seconds for it to come back.`);
+  try {
+    const r = await fetch('/api/restart/controller', { method: 'POST' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _startRecoveryWatcher();
+  } catch(e) {
+    // Dashboard unreachable — can't restart, show error immediately
+    _showControllerBanner('failed',
+      '<strong>&#9888; Auto-restart failed — could not reach the restart endpoint.</strong><br>' +
+      'Please restart manually via <em>start_controller.bat</em>.');
+  }
+}
+
+// ── Connection-lost / stale-data indicator ────────────────────────────────────
+// The dashboard and controller are separate processes. The dashboard keeps
+// serving the last cluster_status.json even after the controller closes, so
+// HTTP polls keep succeeding with stale data. We detect this by comparing
+// the "timestamp" field written into the JSON by the controller against now.
+// Cards still render with whatever data is available — the warning sits on
+// top so the user knows it may be out of date.
+const _STALE_THRESHOLD_SECONDS = 25; // controller writes every ~5 s normally
+let _controllerLost = false;
+
+function _checkStaleness(data) {
+  if (!data.timestamp) return;
+  const ageSeconds = Date.now() / 1000 - data.timestamp;
+  const isStale = ageSeconds > _STALE_THRESHOLD_SECONDS;
+  const sl = document.getElementById('status-line');
+  const cardsEl = document.getElementById('cards');
+  if (isStale && !_controllerLost) {
+    _controllerLost = true;
+    sl.textContent = '⚠ Controller offline — attempting restart…';
+    sl.style.color = '#f87171';
+    cardsEl.classList.add('stale');
+    // Auto-restart unless deliberate or still within the startup grace window
+    if (Date.now() >= _suppressUntil && _restartAttempts === 0 && Date.now() > _startupGraceUntil) {
+      _attemptAutoRestart();
+    }
+  } else if (!isStale && _controllerLost) {
+    _controllerLost  = false;
+    _suppressUntil   = 0;
+    _restartAttempts = 0;
+    _stopWatcher();
+    sl.style.color = '';
+    cardsEl.classList.remove('stale');
+    // Show a brief green confirmation so the admin knows recovery worked
+    _showControllerBanner('restarting',
+      '<strong>&#10003; Controller is back online.</strong>');
+    setTimeout(_clearControllerBanner, 4000);
+  }
+}
+
+let _pollFailures = 0;
+const _MAX_POLL_FAILURES = 3;
+function _markPollOk() {
+  if (_pollFailures >= _MAX_POLL_FAILURES) {
+    document.getElementById('status-line').style.color = '';
+  }
+  _pollFailures = 0;
+}
+function _markPollFail() {
+  _pollFailures++;
+  if (_pollFailures >= _MAX_POLL_FAILURES) {
+    const sl = document.getElementById('status-line');
+    sl.textContent = '⚠ Dashboard unreachable — retrying…';
+    sl.style.color = '#f87171';
+  }
+}
+
 // ── Polling ───────────────────────────────────────────────────────────────────
 async function pollStatus() {
   try {
     const r = await apiFetch('/api/status');
-    if (!r || !r.ok) return;
+    if (!r || !r.ok) { _markPollFail(); return; }
     const data = await r.json();
-    if (data.error) return;
+    if (data.error) { _markPollFail(); return; }
+    _markPollOk();
+    _checkStaleness(data);
+    _checkPlayerChanges(data);
+    _updateRamWarning(data);
+    // Always render cards so the UI is never blank — the staleness warning
+    // in the header is enough to communicate that data may be out of date.
     renderCards(data);
     renderPlayerList(data);
-    setTimerFromStatus(data);
-  } catch(e) {}
+    if (!_controllerLost) setTimerFromStatus(data);
+  } catch(e) { _markPollFail(); }
 }
 
 async function pollLogs() {
@@ -1158,6 +1577,27 @@ def index():
     return render_template_string(HTML)
 
 
+@app.route("/health")
+@login_required
+def health():
+    """Health-check endpoint — requires login when auth is enabled."""
+    try:
+        with open(STATUS_JSON, encoding="utf-8") as f:
+            data = json.load(f)
+        servers = data.get("servers", {})
+        running = [k for k, v in servers.items() if v.get("is_running")]
+        return jsonify({
+            "ok": True,
+            "running_servers": running,
+            "total_players": data.get("total_players", 0),
+            "cluster_shutdown_scheduled": data.get("cluster_shutdown_scheduled", False),
+        })
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "controller not ready"}), 503
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.route("/api/status")
 @login_required
 def get_status():
@@ -1173,7 +1613,7 @@ def get_status():
 @app.route("/api/logs")
 @login_required
 def get_logs():
-    n = request.args.get("n", 300, type=int)
+    n = min(max(request.args.get("n", 300, type=int), 1), 2000)
     try:
         with open(LOG_FILE, encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
@@ -1187,7 +1627,7 @@ def get_logs():
 @app.route("/api/admin_logs")
 @login_required
 def get_admin_logs():
-    n = request.args.get("n", 200, type=int)
+    n = min(max(request.args.get("n", 200, type=int), 1), 2000)
     try:
         with open(ADMIN_LOG_FILE, encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
@@ -1209,6 +1649,36 @@ def get_whitelist():
         return jsonify({"entries": entries})
     except Exception as exc:
         return jsonify({"entries": [], "error": str(exc)})
+
+
+@app.route("/api/whitelist/add-all-online", methods=["POST"])
+@login_required
+def whitelist_add_all_online():
+    """Add every currently online player to the whitelist in one shot."""
+    try:
+        with open(STATUS_JSON, encoding="utf-8") as f:
+            status = json.load(f)
+    except Exception:
+        return jsonify({"error": "Status not available"}), 503
+
+    players = []
+    for server in status.get("servers", {}).values():
+        for p in server.get("player_list", []):
+            sid = str(p.get("id", "")).strip()
+            if sid:
+                players.append({"id": sid, "name": p.get("name", sid)})
+
+    if not players:
+        return jsonify({"ok": True, "added": [], "message": "No players online"})
+
+    try:
+        with open(ADMIN_CMD, "a", encoding="utf-8") as f:
+            for p in players:
+                f.write(f"whitelist add {p['id']}\n")
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"ok": True, "added": players})
 
 
 @app.route("/api/command", methods=["POST"])
@@ -1234,11 +1704,17 @@ def get_settings():
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
+    decrypt_config(cfg)
     result = {section: dict(cfg.items(section)) for section in cfg.sections()}
     # Strip sensitive auth fields — never send hashed password or secret key to browser
     if "auth" in result:
         result["auth"].pop("password_hash", None)
         result["auth"].pop("secret_key",    None)
+    # Also strip other sensitive fields so they don't appear in the settings UI
+    for section in result.values():
+        for key in list(section):
+            if key in SENSITIVE_KEYS:
+                section.pop(key, None)
     return jsonify(result)
 
 
@@ -1251,21 +1727,54 @@ def post_settings():
         cfg.read(CONFIG_FILE, encoding="utf-8")
     except Exception:
         pass
+    # Validate max_active_servers against the RAM-based hard limit
+    try:
+        _limits_section = data.get("limits", {})
+        if not isinstance(_limits_section, dict):
+            _limits_section = {}
+        requested_max = int(_limits_section.get("max_active_servers", 0) or 0)
+        if requested_max > 0:
+            ram_max = None
+            try:
+                with open(STATUS_JSON, encoding="utf-8") as _sf:
+                    ram_max = json.load(_sf).get("ram_max_maps")
+            except Exception:
+                pass
+            if ram_max is not None and requested_max > ram_max:
+                return jsonify({
+                    "error": f"max_active_servers cannot exceed {ram_max} — "
+                             f"your system RAM only supports {ram_max} map(s) "
+                             f"(15 GB overhead + 12 GB per map)."
+                }), 400
+    except (ValueError, TypeError):
+        pass
+
     for section, kvs in data.items():
         if not cfg.has_section(section):
             cfg.add_section(section)
         for key, value in kvs.items():
-            # Block sensitive auth fields — must never be set directly via the API
-            if section == "auth" and key in ("password_hash", "secret_key"):
+            # These fields are read-only from the dashboard — must be changed
+            # via setup_wizard.py only
+            if section == "auth":
                 continue
-            # new_password is a UI-only field — hash it and store as password_hash
-            if section == "auth" and key == "new_password":
-                if str(value).strip():
-                    cfg.set("auth", "password_hash", _hash_password(str(value).strip()))
-                # Never persist the plaintext new_password field
+            if section == "cluster" and key == "rcon_password":
                 continue
-            cfg.set(section, key, str(value))
+            str_val = str(value)
+            if key in SENSITIVE_KEYS:
+                # Sensitive fields are stripped from the GET response so they
+                # arrive as "" when the user didn't type a new value.
+                # Skip empty submissions — never overwrite an existing secret.
+                if not str_val:
+                    continue
+                str_val = encrypt_cfg_value(str_val)
+            cfg.set(section, key, str_val)
     try:
+        # Back up the current config before overwriting so bad settings can be recovered
+        if os.path.exists(CONFIG_FILE):
+            try:
+                shutil.copy2(CONFIG_FILE, CONFIG_FILE + ".bak")
+            except Exception:
+                pass
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             cfg.write(f)
         return jsonify({"ok": True})
@@ -1365,14 +1874,25 @@ def get_seen_players():
         return jsonify({"players": {}, "error": str(exc)})
 
 
+def _ram_max_maps_default() -> str:
+    """Return the RAM-based max concurrent maps as a string, for use in /api/defaults."""
+    try:
+        with open(STATUS_JSON, encoding="utf-8") as _sf:
+            ram_max = json.load(_sf).get("ram_max_maps")
+        if ram_max is not None:
+            return str(ram_max)
+    except Exception:
+        pass
+    return "3"
+
+
 @app.route("/api/defaults")
 @login_required
 def get_defaults():
     return jsonify({
         "cluster": {
             "cluster_name": "MyCluster",
-            "rcon_password": "ChangeMe123",
-            "default_map": "ragnarok",
+            "default_map": "theisland",
         },
         "network": {
             "rcon_host": "127.0.0.1",
@@ -1384,22 +1904,22 @@ def get_defaults():
             "steamcmd_path": r"C:\ASA_Cluster\SteamCMD\steamcmd.exe",
         },
         "limits": {
-            "max_active_servers": "3",
+            "max_active_servers": _ram_max_maps_default(),
             "max_players": "70",
             "max_tamed_dinos": "5000",
-            "max_personal_tamed_dinos": "40",
+            "max_personal_tamed_dinos": "1000",
             "low_memory_mode": "true",
             "no_sound": "true",
             "gc_purge_interval": "30",
         },
         "timers": {
-            "map_shutdown_minutes": "15",
+            "map_shutdown_minutes": "30",
             "startup_grace_minutes": "15",
             "autosave_minutes": "15",
             "cluster_shutdown_minutes": "30",
             "server_start_timeout_seconds": "300",
             "save_before_exit_seconds": "10",
-            "post_shutdown_wait_seconds": "60",
+            "post_shutdown_wait_seconds": "30",
             "crash_detection_threshold": "5",
         },
         "backup": {
@@ -1415,6 +1935,7 @@ def get_defaults():
             "crash_window_minutes": "60",
         },
         "discord": {
+            "discord_enabled": "false",
             "use_bot": "false",
             "webhook_url": "",
             "bot_token": "",
@@ -1428,27 +1949,36 @@ def get_defaults():
         "schedule": {
             "poll_seconds": "5",
             "check_updates_on_startup": "true",
-            "restart_time": "06:00",
+            "restart_time": "",
         },
         "rates": {
-            "xp_multiplier": "1.0",
-            "taming_speed_multiplier": "1.0",
-            "harvest_amount_multiplier": "1.0",
+            "xp_multiplier": "2.0",
+            "taming_speed_multiplier": "5.0",
+            "harvest_amount_multiplier": "5.0",
             "difficulty_offset": "1.0",
-            "mating_interval_multiplier": "1.0",
-            "egg_hatch_speed_multiplier": "1.0",
+            "item_stack_size_multiplier": "5.0",
+            "loot_quality_multiplier": "5.0",
+            "fishing_loot_quality_multiplier": "5.0",
+            "supply_crate_loot_quality_multiplier": "5.0",
             "global_spoiling_time_multiplier": "1.0",
             "global_item_decomposition_time_multiplier": "1.0",
             "global_corpse_decomposition_time_multiplier": "1.0",
-            "crop_growth_speed_multiplier": "1.0",
-            "mating_speed_multiplier": "1.0",
+            "crop_growth_speed_multiplier": "10.0",
             "fuel_consumption_interval_multiplier": "1.0",
         },
         "breeding": {
-            "baby_mature_speed_multiplier": "1.0",
-            "baby_cuddle_interval_multiplier": "1.8",
-            "baby_cuddle_grace_period_multiplier": "1.0",
-            "baby_imprint_amount_multiplier": "20.0",
+            "mating_interval_multiplier": "0.001",
+            "mating_speed_multiplier": "1.0",
+            "egg_hatch_speed_multiplier": "50.0",
+            "lay_egg_interval_multiplier": "0.5",
+            "baby_mature_speed_multiplier": "50.0",
+            "baby_cuddle_interval_multiplier": "0.036",
+            "baby_cuddle_grace_period_multiplier": "5.0",
+            "baby_imprint_amount_multiplier": "100.0",
+        },
+        "structures": {
+            "structure_pickup_time_after_placement": "300",
+            "per_platform_max_structures_multiplier": "1.0",
         },
         "flags": {
             "allow_third_person": "false",
@@ -1506,6 +2036,12 @@ input:focus { outline:none; border-color:#3b4a7a; }
 .sec-head:first-child { margin-top:0; }
 input::placeholder { color:#3d4a62; }
 .breed-hint { font-size:12px; color:#4ade80; display:block; margin-top:3px; }
+select.s-sel { width:100%; background:#131825; border:1px solid #2a3050; color:#dde1e7;
+  padding:6px 10px; border-radius:4px; font-size:14px; font-family:inherit; cursor:pointer; }
+select.s-sel:focus { outline:none; border-color:#3b4a7a; }
+.restart-warn, select.restart-warn { border-color:#f97316 !important; box-shadow:0 0 0 1px #f97316; }
+#restart-banner { background:#431407; color:#fb923c; padding:8px 12px; border-radius:4px;
+  font-size:13px; margin-top:8px; display:none; }
 
 /* Toggle switch */
 .toggle-label { display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none; font-size:14px; padding:4px 0; }
@@ -1528,11 +2064,12 @@ input::placeholder { color:#3d4a62; }
   <h1>⚙ Settings</h1>
 </div>
 <div class="notice" id="notice">No config.ini found — defaults loaded. Fill in your values and save.</div>
-<div class="hint">Most changes apply on the next server start. Schedule, network, and path changes require a controller restart.</div>
+<div class="hint">Most changes apply on the next server start or controller restart. Fields outlined in orange require a dashboard restart to take effect.</div>
 <div class="tab-bar" id="tab-bar"></div>
 <div class="tab-content">
   <div id="form"></div>
 </div>
+<div id="restart-banner">⚠ Fields with an orange outline require a dashboard restart to take effect — save first, then use the Restart Dashboard button on the main page.</div>
 <div class="footer"><button class="btn" id="save-btn" onclick="save()">Save Settings</button></div>
 </div>
 <script>
@@ -1547,14 +2084,11 @@ const SCHEMA = [
   { group:'Cluster', sections:[
     { title:'Identity', fields:[
       {s:'cluster',    k:'cluster_name',   label:'Cluster Name',   ph:'MyCluster'},
-      {s:'cluster',    k:'rcon_password',  label:'RCON Password',  ph:'ChangeMe123'},
-      {s:'cluster',    k:'default_map',    label:'Default Map',    ph:'ragnarok'},
-      {s:'network',    k:'rcon_host',      label:'RCON Host',           ph:'127.0.0.1'},
-      {s:'network',    k:'web_status_port',label:'Dashboard Port',       ph:'5000',  hint:'Port the web dashboard listens on — requires a dashboard restart to take effect'},
-    ]},
-    { title:'Dashboard Login', fields:[
-      {s:'auth', k:'username',      label:'Username',         ph:'admin',   hint:'Login username for the dashboard'},
-      {s:'auth', k:'new_password',  label:'New Password',     ph:'',        type:'password', hint:'Leave blank to keep current password — fill in to change it'},
+      {s:'cluster',    k:'default_map',    label:'Default Map',    type:'select',
+        options:['theisland','ragnarok','thecenter','valguero','scorchedearth','aberration','extinction','lostcolony','astraeos']},
+      {s:'network',    k:'rcon_host',      label:'RCON Host',      ph:'127.0.0.1'},
+      {s:'network',    k:'web_status_port',label:'Dashboard Port', ph:'5000', restart:true,
+        hint:'⚠ Requires a dashboard restart to take effect'},
     ]},
     { title:'Paths', fields:[
       {s:'paths', k:'server_root',   label:'Server Root',   ph:'C:\\ASA_Cluster\\asa_server',              wide:true},
@@ -1579,7 +2113,7 @@ const SCHEMA = [
     ]},
     { title:'Schedule', grid:true, fields:[
       {s:'schedule', k:'poll_seconds',            label:'Poll Interval (s)',      ph:'5'},
-      {s:'schedule', k:'restart_time',            label:'Daily Restart (HH:MM)',  ph:'06:00'},
+      {s:'schedule', k:'restart_time',            label:'Daily Restart (HH:MM)',  ph:'', hint:'Leave blank to disable scheduled restarts'},
       {s:'schedule', k:'check_updates_on_startup',label:'Check Updates on Start', ph:'true'},
     ]},
     { title:'Timers', grid:true, fields:[
@@ -1605,15 +2139,17 @@ const SCHEMA = [
       {s:'crash', k:'crash_window_minutes',   label:'Window (min)',          ph:'60',    hint:'Time window for counting crash restarts — resets after this many minutes'},
     ]},
     { title:'Discord Notifications', fields:[
-      {s:'discord', k:'use_bot', label:'Enable Two-Way Bot (advanced)', type:'checkbox', ph:'false',
+      {s:'discord', k:'discord_enabled', label:'Enable Discord Notifications', type:'checkbox', ph:'false',
+        hint:'Master switch — off by default. Turn on to send notifications to Discord via webhook or bot.'},
+      {s:'discord', k:'use_bot', label:'Enable Two-Way Bot (advanced)', type:'checkbox', ph:'false', visGroup:'discord-settings',
         hint:'Off = simple webhook (one-way notifications). On = full Discord bot with commands from Discord.'},
       {s:'discord', k:'webhook_url', label:'Webhook URL', ph:'https://discord.com/api/webhooks/...', wide:true, visGroup:'webhook',
-        hint:'Paste your Discord channel webhook URL — Discord → channel settings → Integrations → Webhooks → New Webhook → Copy URL'},
+        hint:'Paste your Discord webhook URL. Leave blank to keep the existing saved URL.'},
     ]},
-    { title:'Notification Events', grid:true, fields:[
-      {s:'discord', k:'notify_server_events',  label:'Server Online',  ph:'true', hint:'Notify when a server comes online'},
-      {s:'discord', k:'notify_crash_events',   label:'Crash Events',   ph:'true', hint:'Notify on crash, auto-restart, and crash limit reached'},
-      {s:'discord', k:'notify_cluster_events', label:'Cluster Events', ph:'true', hint:'Notify on cluster restarts, shutdowns, and scheduled events'},
+    { title:'Notification Events', fields:[
+      {s:'discord', k:'notify_server_events',  label:'Server Online',  ph:'true', visGroup:'discord-settings', hint:'Notify when a server comes online'},
+      {s:'discord', k:'notify_crash_events',   label:'Crash Events',   ph:'true', visGroup:'discord-settings', hint:'Notify on crash, auto-restart, and crash limit reached'},
+      {s:'discord', k:'notify_cluster_events', label:'Cluster Events', ph:'true', visGroup:'discord-settings', hint:'Notify on cluster restarts, shutdowns, and scheduled events'},
     ]},
     { title:'Bot Setup (Two-Way)', fields:[
       {type:'info', visGroup:'bot', html:`
@@ -1625,7 +2161,7 @@ const SCHEMA = [
         5. Fill in the fields below and save
       `},
       {s:'discord', k:'bot_token',               label:'Bot Token',               ph:'your-bot-token-here', wide:true, visGroup:'bot',
-        hint:'From Discord Developer Portal → Your App → Bot → Token'},
+        hint:'From Discord Developer Portal → Your App → Bot → Token. Leave blank to keep the existing saved token.'},
       {s:'discord', k:'notification_channel_id', label:'Notification Channel ID', ph:'123456789012345678',   visGroup:'bot',
         hint:'Channel where the bot posts events — right-click channel → Copy Channel ID'},
       {s:'discord', k:'command_channel_id',      label:'Command Channel ID',      ph:'123456789012345678',   visGroup:'bot',
@@ -1642,17 +2178,17 @@ const SCHEMA = [
       {s:'world', k:'resources_respawn_period_multiplier',label:'Resources Respawn',        ph:'1.0'},
     ]},
     { title:'Experience & Gathering', grid3:true, fields:[
-      {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0',               hint:'✦ Rec: 1.5 — less grind'},
+      {s:'rates', k:'xp_multiplier',             label:'XP',               ph:'1.0',               hint:'✦ Rec: 2.0 — less grind'},
       {s:'rates', k:'harvest_amount_multiplier', label:'Harvest Amount',   ph:'1.0',               hint:'✦ Rec: 5.0 — less farming'},
       {s:'rates', k:'taming_speed_multiplier',   label:'Taming Speed',     ph:'1.0',               hint:'✦ Rec: 5.0 — reasonable tame times'},
       {s:'rates', k:'difficulty_offset',         label:'Difficulty Offset',ph:'1.0',               hint:'✦ Rec: 1.0 — enables max lvl 150 dinos'},
       {s:'rates', k:'item_stack_size_multiplier',label:'Item Stack Size',  ph:'1.0',               hint:'✦ Rec: 5.0 — less inventory juggling'},
-      {s:'rates', k:'crop_growth_speed_multiplier',label:'Crop Growth',    ph:'1.0',               hint:'✦ Rec: 5.0 — faster crops'},
+      {s:'rates', k:'crop_growth_speed_multiplier',label:'Crop Growth',    ph:'1.0',               hint:'✦ Rec: 10.0 — faster crops'},
     ]},
     { title:'Loot Quality', grid3:true, fields:[
-      {s:'rates', k:'loot_quality_multiplier',               label:'General Loot',    ph:'1.0', hint:'✦ Rec: 3.0 — better drops'},
-      {s:'rates', k:'fishing_loot_quality_multiplier',       label:'Fishing Loot',    ph:'1.0', hint:'✦ Rec: 3.0 — worth fishing'},
-      {s:'rates', k:'supply_crate_loot_quality_multiplier',  label:'Supply Crate',    ph:'1.0', hint:'✦ Rec: 3.0 — rewarding drops'},
+      {s:'rates', k:'loot_quality_multiplier',               label:'General Loot',    ph:'1.0', hint:'✦ Rec: 5.0 — better drops'},
+      {s:'rates', k:'fishing_loot_quality_multiplier',       label:'Fishing Loot',    ph:'1.0', hint:'✦ Rec: 5.0 — worth fishing'},
+      {s:'rates', k:'supply_crate_loot_quality_multiplier',  label:'Supply Crate',    ph:'1.0', hint:'✦ Rec: 5.0 — rewarding drops'},
     ]},
     { title:'Decay & Fuel', grid3:true, fields:[
       {s:'rates', k:'global_spoiling_time_multiplier',             label:'Spoiling Time',   ph:'1.0'},
@@ -1690,14 +2226,14 @@ const SCHEMA = [
     { title:'Mating & Hatching', grid:true, fields:[
       {s:'breeding', k:'mating_interval_multiplier', label:'Mating Interval',  ph:'1.0', hint:'✦ Rec: 0.001 — near instant cooldown'},
       {s:'breeding', k:'mating_speed_multiplier',    label:'Mating Speed',     ph:'1.0', hint:'✦ Rec: 1.0 — vanilla speed'},
-      {s:'breeding', k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0', hint:'✦ Rec: 100.0 — fast hatching'},
+      {s:'breeding', k:'egg_hatch_speed_multiplier', label:'Egg Hatch Speed',  ph:'1.0', hint:'✦ Rec: 50.0 — fast hatching'},
       {s:'breeding', k:'lay_egg_interval_multiplier',label:'Lay Egg Interval', ph:'1.0', hint:'✦ Rec: 0.5 — eggs more often'},
     ]},
     { title:'Raising & Imprinting', grid:true, fields:[
       {s:'breeding', k:'baby_mature_speed_multiplier',        label:'Mature Speed',        ph:'1.0', hint:'✦ Rec: 50.0 — fast maturation'},
       {s:'breeding', k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval',     ph:'1.8 ÷ mature speed', rec:'interval'},
       {s:'breeding', k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period', ph:'max(5.0, mature÷10)', rec:'grace'},
-      {s:'breeding', k:'baby_imprint_amount_multiplier',      label:'Imprint Amount',      ph:'20.0',               rec:'imprint'},
+      {s:'breeding', k:'baby_imprint_amount_multiplier',      label:'Imprint Amount',      ph:'100.0',              rec:'imprint'},
     ]},
   ]},
   { group:'Flags', sections:[
@@ -1767,7 +2303,6 @@ function render(data) {
       else wrap.className = 'stack';
       for (const f of sec.fields) {
         const saved = (data[f.s] || {})[f.k] || '';
-        const ph    = saved || f.ph || '';
         const d = document.createElement('div');
         let cls = 'field' + (f.wide ? ' wide' : '');
         if (f.visGroup) cls += ' vis-group-' + f.visGroup;
@@ -1786,8 +2321,10 @@ function render(data) {
           // Toggle switch — value stored as "true"/"false" string in config
           const val = (saved || f.ph || 'false').trim().toLowerCase();
           const checked = val === 'true';
-          // Only wire the Discord visibility toggle to the use_bot field
-          const onchg = (f.s === 'discord' && f.k === 'use_bot') ? ' onchange="onDiscordToggle(this)"' : '';
+          // Wire Discord visibility toggles
+          const onchg = (f.s === 'discord' && f.k === 'discord_enabled') ? ' onchange="onDiscordEnabledToggle(this)"'
+                      : (f.s === 'discord' && f.k === 'use_bot')         ? ' onchange="onDiscordToggle(this)"'
+                      : '';
           d.innerHTML = `<label class="toggle-label">
             <input type="checkbox" class="toggle-cb" data-s="${f.s}" data-k="${f.k}"${checked ? ' checked' : ''}${onchg}>
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
@@ -1795,11 +2332,23 @@ function render(data) {
           </label>${hint}`;
         } else if (f.type === 'info') {
           d.innerHTML = `<div class="info-box">${f.html}</div>`;
+        } else if (f.type === 'select') {
+          // Dropdown — options defined in SCHEMA
+          const cur = saved || f.ph || (f.options && f.options[0]) || '';
+          const opts = (f.options || []).map(o =>
+            `<option value="${esc(o)}"${cur === o ? ' selected' : ''}>${esc(o)}</option>`
+          ).join('');
+          d.innerHTML = `<label>${esc(f.label)}</label><select class="s-sel" data-s="${f.s}" data-k="${f.k}">${opts}</select>${hint}`;
         } else {
-          // Field is always empty — placeholder shows the current config value
+          // Non-checkbox field: pre-fill value with the current config value so the
+          // user can see what is set; fall back to the schema default as placeholder.
           const inputType = f.type === 'password' ? 'password' : 'text';
           const autoComp  = f.type === 'password' ? 'new-password' : 'off';
-          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="" placeholder="${esc(ph)}">${hint}`;
+          // Password fields stay empty — user must retype to change
+          const inputVal  = f.type === 'password' ? '' : esc(saved);
+          const inputPh   = esc(f.ph || '');
+          const restartAttr = f.restart ? ` data-restart="true" data-original="${inputVal}"` : '';
+          d.innerHTML = `<label>${esc(f.label)}</label><input type="${inputType}" autocomplete="${autoComp}" data-s="${f.s}" data-k="${f.k}" value="${inputVal}" placeholder="${inputPh}"${restartAttr}>${hint}`;
         }
         wrap.appendChild(d);
       }
@@ -1816,7 +2365,7 @@ function updateBreedHints() {
   const recs = {
     interval: ms > 0 ? (1.8 / ms).toFixed(4) : '1.8000',
     grace:    Math.max(5.0, ms / 10).toFixed(1),
-    imprint:  '20.0',
+    imprint:  '100.0',
   };
   document.querySelectorAll('.breed-hint').forEach(el => {
     const r = el.dataset.rec;
@@ -1842,14 +2391,41 @@ function applyDiscordVisibility(botEnabled) {
   });
 }
 
+function applyDiscordEnabledVisibility(enabled) {
+  document.querySelectorAll('[data-vis-group="discord-settings"]').forEach(el => {
+    el.style.display = enabled ? '' : 'none';
+  });
+  // Also hide webhook/bot sub-groups when Discord is fully disabled
+  if (!enabled) {
+    document.querySelectorAll('[data-vis-group="webhook"],[data-vis-group="bot"]').forEach(el => {
+      el.style.display = 'none';
+    });
+  } else {
+    // Re-apply bot/webhook split based on current use_bot value
+    const useBotCb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
+    if (useBotCb) applyDiscordVisibility(useBotCb.checked);
+  }
+}
+
+function onDiscordEnabledToggle(cb) {
+  applyDiscordEnabledVisibility(cb.checked);
+}
+
 function onDiscordToggle(cb) {
   applyDiscordVisibility(cb.checked);
 }
 
 function wireDiscordToggle() {
-  const cb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
-  if (cb) applyDiscordVisibility(cb.checked);
+  const enabledCb = document.querySelector('input[data-s="discord"][data-k="discord_enabled"]');
+  const enabled = enabledCb ? enabledCb.checked : false;
+  applyDiscordEnabledVisibility(enabled);
+  if (enabled) {
+    const useBotCb = document.querySelector('input[data-s="discord"][data-k="use_bot"]');
+    if (useBotCb) applyDiscordVisibility(useBotCb.checked);
+  }
 }
+
+let _ramMaxMaps = null;
 
 async function load() {
   let data = {};
@@ -1862,33 +2438,189 @@ async function load() {
       document.getElementById('notice').style.display = 'block';
     }
   } catch(e) { console.error('Settings load error:', e); }
+  // Fetch RAM limit so we can validate max_active_servers and set its placeholder
+  try {
+    const sr = await apiFetch('/api/status');
+    if (sr && sr.ok) {
+      const sd = await sr.json();
+      if (sd.ram_max_maps != null) _ramMaxMaps = sd.ram_max_maps;
+    }
+  } catch(e) {}
   buildTabBar();
   render(data);
+  // Update the max_active_servers placeholder to reflect the RAM-based suggestion
+  if (_ramMaxMaps) {
+    const inp = document.querySelector('input[data-s="limits"][data-k="max_active_servers"]');
+    if (inp) inp.placeholder = _ramMaxMaps;
+  }
   wireBreedingHints();
   wireDiscordToggle();
+  // Wire oninput for restart-required fields
+  document.querySelectorAll('[data-restart]').forEach(el => {
+    el.addEventListener('input', checkRestartWarnings);
+  });
+  checkRestartWarnings();
+}
+
+// ── Restart-required field warnings ─────────────────────────────────────────
+function checkRestartWarnings() {
+  let needsRestart = false;
+  document.querySelectorAll('[data-restart]').forEach(el => {
+    const changed = el.value !== (el.dataset.original || '');
+    el.classList.toggle('restart-warn', changed);
+    if (changed) needsRestart = true;
+  });
+  const banner = document.getElementById('restart-banner');
+  if (banner) banner.style.display = needsRestart ? '' : 'none';
+}
+
+// ── Settings validation ─────────────────────────────────────────────────────
+// Returns null if all values are valid, or an error string to show the user.
+function validateSettings(payload) {
+  // Integer rules: [section, key, label, min, max]
+  const INT_RULES = [
+    ['limits',   'max_active_servers',           'Max Active Maps',               1,  9],
+    ['limits',   'max_players',                  'Max Players',                   1,  500],
+    ['limits',   'max_tamed_dinos',              'Max Tamed Dinos',               1,  100000],
+    ['limits',   'max_personal_tamed_dinos',     'Max Personal Tamed Dinos',      1,  9999],
+    ['limits',   'gc_purge_interval',            'GC Purge Interval',             1,  3600],
+    ['schedule', 'poll_seconds',                 'Poll Seconds',                  1,  60],
+    ['timers',   'map_shutdown_minutes',         'Map Shutdown Minutes',          1,  1440],
+    ['timers',   'autosave_minutes',             'Autosave Minutes',              1,  120],
+    ['timers',   'startup_grace_minutes',        'Startup Grace Minutes',         1,  120],
+    ['timers',   'cluster_shutdown_minutes',     'Cluster Shutdown Minutes',      1,  1440],
+    ['timers',   'server_start_timeout_seconds', 'Server Start Timeout (sec)',    30, 3600],
+    ['timers',   'save_before_exit_seconds',     'Save Before Exit (sec)',        1,  300],
+    ['timers',   'post_shutdown_wait_seconds',   'Post Shutdown Wait (sec)',      1,  300],
+    ['timers',   'crash_detection_threshold',    'Crash Detection Threshold',     1,  60],
+    ['backup',   'max_backups',                  'Max Backups',                   1,  25],
+    ['backup',   'max_logs',                     'Max Logs',                      1,  100],
+    ['crash',    'crash_grace_seconds',          'Crash Grace (sec)',             1,  600],
+    ['crash',    'crash_cooldown_minutes',       'Crash Cooldown (min)',          1,  60],
+    ['crash',    'max_crash_restarts',           'Max Crash Restarts',            1,  10],
+    ['crash',    'crash_window_minutes',         'Crash Window (min)',            1,  1440],
+    ['network',  'web_status_port',              'Dashboard Port',                1,  65535],
+    ['structures','structure_pickup_time_after_placement','Structure Pickup Time (s)',  0,  86400],
+  ];
+
+  // Float rules: [section, key, label, min, max]
+  const FLOAT_RULES = [
+    ['rates',     'difficulty_offset',                          'Difficulty Offset',                        0.0,   10.0],
+    ['world',     'day_time_speed_scale',                       'Day Time Speed Scale',                     0.001, 999.0],
+    ['world',     'night_time_speed_scale',                     'Night Time Speed Scale',                   0.001, 999.0],
+    ['world',     'dino_count_multiplier',                      'Dino Count Multiplier',                    0.001, 999.0],
+    ['world',     'resources_respawn_period_multiplier',        'Resources Respawn Period Multiplier',       0.001, 999.0],
+    ['rates',     'xp_multiplier',                              'XP Multiplier',                            0.001, 999.0],
+    ['rates',     'taming_speed_multiplier',                    'Taming Speed Multiplier',                  0.001, 999.0],
+    ['rates',     'harvest_amount_multiplier',                  'Harvest Amount Multiplier',                0.001, 999.0],
+    ['rates',     'item_stack_size_multiplier',                 'Item Stack Size Multiplier',               0.001, 999.0],
+    ['rates',     'loot_quality_multiplier',                    'Loot Quality Multiplier',                  0.001, 999.0],
+    ['rates',     'fishing_loot_quality_multiplier',            'Fishing Loot Quality Multiplier',          0.001, 999.0],
+    ['rates',     'supply_crate_loot_quality_multiplier',       'Supply Crate Loot Quality Multiplier',     0.001, 999.0],
+    ['rates',     'global_spoiling_time_multiplier',            'Global Spoiling Time Multiplier',          0.001, 999.0],
+    ['rates',     'global_item_decomposition_time_multiplier',  'Item Decomposition Time Multiplier',       0.001, 999.0],
+    ['rates',     'global_corpse_decomposition_time_multiplier','Corpse Decomposition Time Multiplier',     0.001, 999.0],
+    ['rates',     'crop_growth_speed_multiplier',               'Crop Growth Speed Multiplier',             0.001, 999.0],
+    ['rates',     'fuel_consumption_interval_multiplier',       'Fuel Consumption Interval Multiplier',     0.001, 999.0],
+    ['survival',  'player_food_drain_multiplier',               'Player Food Drain Multiplier',             0.001, 999.0],
+    ['survival',  'player_water_drain_multiplier',              'Player Water Drain Multiplier',            0.001, 999.0],
+    ['survival',  'player_stamina_drain_multiplier',            'Player Stamina Drain Multiplier',          0.001, 999.0],
+    ['survival',  'player_health_recovery_multiplier',          'Player Health Recovery Multiplier',        0.001, 999.0],
+    ['survival',  'dino_food_drain_multiplier',                 'Dino Food Drain Multiplier',               0.001, 999.0],
+    ['survival',  'dino_health_recovery_multiplier',            'Dino Health Recovery Multiplier',          0.001, 999.0],
+    ['combat',    'player_damage_multiplier',                   'Player Damage Multiplier',                 0.001, 999.0],
+    ['combat',    'player_resistance_multiplier',               'Player Resistance Multiplier',             0.001, 999.0],
+    ['combat',    'dino_damage_multiplier',                     'Dino Damage Multiplier',                   0.001, 999.0],
+    ['combat',    'dino_resistance_multiplier',                 'Dino Resistance Multiplier',               0.001, 999.0],
+    ['combat',    'tamed_dino_damage_multiplier',               'Tamed Dino Damage Multiplier',             0.001, 999.0],
+    ['combat',    'tamed_dino_resistance_multiplier',           'Tamed Dino Resistance Multiplier',         0.001, 999.0],
+    ['combat',    'structure_damage_multiplier',                'Structure Damage Multiplier',              0.001, 999.0],
+    ['breeding',  'mating_interval_multiplier',                 'Mating Interval Multiplier',               0.001, 999.0],
+    ['breeding',  'mating_speed_multiplier',                    'Mating Speed Multiplier',                  0.001, 999.0],
+    ['breeding',  'egg_hatch_speed_multiplier',                 'Egg Hatch Speed Multiplier',               0.001, 999.0],
+    ['breeding',  'lay_egg_interval_multiplier',                'Lay Egg Interval Multiplier',              0.001, 999.0],
+    ['breeding',  'baby_mature_speed_multiplier',               'Baby Mature Speed Multiplier',             0.001, 999.0],
+    ['breeding',  'baby_cuddle_interval_multiplier',            'Baby Cuddle Interval Multiplier',          0.001, 999.0],
+    ['breeding',  'baby_cuddle_grace_period_multiplier',        'Baby Cuddle Grace Period Multiplier',      0.001, 999.0],
+    ['breeding',  'baby_imprint_amount_multiplier',             'Baby Imprint Amount Multiplier',           0.001, 999.0],
+    ['structures','per_platform_max_structures_multiplier',     'Per Platform Max Structures Multiplier',   0.001, 999.0],
+  ];
+
+  const errors = [];
+
+  for (const [sec, key, label, min, max] of INT_RULES) {
+    const raw = (payload[sec] || {})[key];
+    if (raw === undefined || raw === '') continue; // field not present / blank = keep old value
+    const v = parseInt(raw, 10);
+    if (isNaN(v) || !Number.isFinite(v) || v < min || v > max) {
+      errors.push(`• ${label}: must be a whole number between ${min} and ${max} (got "${raw}")`);
+    }
+  }
+
+  for (const [sec, key, label, min, max] of FLOAT_RULES) {
+    const raw = (payload[sec] || {})[key];
+    if (raw === undefined || raw === '') continue;
+    const v = parseFloat(raw);
+    if (isNaN(v) || !Number.isFinite(v) || v < min || v > max) {
+      errors.push(`• ${label}: must be a number between ${min} and ${max} (got "${raw}")`);
+    }
+  }
+
+  // restart_time: must be H:MM or HH:MM (24-hour) or blank
+  const rt = (payload.schedule || {}).restart_time;
+  if (rt !== undefined && rt !== '') {
+    if (!/^([0-9]|[01]\d|2[0-3]):[0-5]\d$/.test(rt)) {
+      errors.push(`• Restart Time: must be in HH:MM format (24-hour) or left blank (got "${rt}")`);
+    }
+  }
+
+  return errors.length === 0 ? null : errors.join('\n');
 }
 
 async function save() {
   const btn = document.getElementById('save-btn');
   btn.textContent = 'Saving…'; btn.disabled = true;
   const payload = {};
-  document.querySelectorAll('#form input').forEach(i => {
+  document.querySelectorAll('#form input, #form select').forEach(i => {
     const s = i.dataset.s, k = i.dataset.k;
     if (!s || !k) return; // skip inputs without data-s / data-k
     if (!payload[s]) payload[s] = {};
-    // Checkboxes store "true"/"false" strings; password fields send exact value
-    if (i.type === 'checkbox') {
+    if (i.tagName === 'SELECT') {
+      payload[s][k] = i.value;
+    } else if (i.type === 'checkbox') {
+      // Checkboxes store "true"/"false" strings
       payload[s][k] = i.checked ? 'true' : 'false';
     } else if (i.type === 'password') {
       // Only include password fields when the user actually typed something
       if (i.value !== '') payload[s][k] = i.value;
     } else {
-      // Use !== '' so a user can intentionally clear a field (e.g. mod_ids,
-      // active_event, restart_time). Only fall back to placeholder when the
-      // field is completely untouched (empty because we never set i.value).
-      payload[s][k] = i.value !== '' ? i.value : i.placeholder;
+      // Fields are pre-filled with the current config value on load, so i.value
+      // always reflects the intended setting (edited, cleared, or untouched).
+      payload[s][k] = i.value;
     }
   });
+
+  // Validate all fields before sending
+  const validationError = validateSettings(payload);
+  if (validationError) {
+    btn.textContent = 'Save Settings'; btn.disabled = false;
+    alert('Please fix the following before saving:\n\n' + validationError);
+    return;
+  }
+
+  // Validate max_active_servers against RAM-based limit
+  const requestedMax = parseInt((payload.limits || {}).max_active_servers || '0', 10);
+  if (_ramMaxMaps && requestedMax > 0 && requestedMax > _ramMaxMaps) {
+    btn.textContent = 'Save Settings'; btn.disabled = false;
+    alert(
+      `Cannot set Max Active Maps to ${requestedMax}.\n\n` +
+      `Your system RAM only supports ${_ramMaxMaps} map(s) ` +
+      `(15 GB overhead + 12 GB per map).\n\n` +
+      `Set a value between 1 and ${_ramMaxMaps}, or leave it at 0 for automatic.`
+    );
+    return;
+  }
+
   const reset = () => { btn.textContent = 'Save Settings'; btn.disabled = false; btn.style.background = ''; btn.className = 'btn'; };
   try {
     const r = await apiFetch('/api/settings', {
@@ -1898,13 +2630,20 @@ async function save() {
     if (!r) return; // 401 — apiFetch already redirected to /login
     if (r.ok) {
       document.getElementById('notice').style.display = 'none';
+      // Update data-original on restart-required fields so outline clears after save
+      document.querySelectorAll('[data-restart]').forEach(el => {
+        el.dataset.original = el.value;
+        el.classList.remove('restart-warn');
+      });
+      checkRestartWarnings();
       btn.textContent = 'Saved!'; btn.className = 'btn saved'; btn.disabled = false;
       setTimeout(reset, 2000);
     } else {
       const body = await r.json().catch(() => ({}));
-      btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
+      const msg = body.error || ('HTTP ' + r.status);
+      alert('Save failed:\n\n' + msg);
       console.error('Settings save failed:', r.status, body);
-      setTimeout(reset, 2500);
+      reset();
     }
   } catch (e) {
     btn.textContent = 'Error — try again'; btn.style.background = '#7f1d1d'; btn.disabled = false;
@@ -2087,22 +2826,24 @@ if __name__ == "__main__":
         _stored_user = _auth_cfg.get("auth", "username", fallback="admin")
         print(f"Dashboard login enabled — username: {_stored_user}")
     else:
-        print("Dashboard login disabled — set a password in Settings to enable it.")
+        print("Dashboard login disabled — run setup_wizard.py to set a username and password.")
 
     port = _get_web_port()
+    host = _get_dashboard_host()
     try:
         # Probe the port before Flask tries to bind — gives a clear error message
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("0.0.0.0", port))
+            s.bind((host, port))
     except OSError:
         print(f"ERROR: Port {port} is already in use.")
         print(f"       Either stop the process using port {port}, or change")
         print(f"       'web_status_port' in controller/config.ini to a free port.")
         input("\nPress Enter to close...")
         raise SystemExit(1)
-    print(f"Dashboard running at http://localhost:{port}")
+    access = "externally" if host == "0.0.0.0" else "locally (localhost only)"
+    print(f"Dashboard running at http://localhost:{port}  [{access}]")
     try:
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        app.run(host=host, port=port, debug=False, use_reloader=False)
     finally:
         try:
             os.remove(DASHBOARD_PID_FILE)

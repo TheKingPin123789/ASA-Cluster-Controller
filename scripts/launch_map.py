@@ -84,6 +84,7 @@ def _patch_ini(path: str, section: str, desired: dict) -> None:
         for lk, (ck, val) in desired_lower.items():
             if lk not in seen:
                 result.append(f"{ck}={val}\n")
+                seen.add(lk)  # mark written so `if not seen` doesn't add a duplicate header
     if not seen:
         result.append(f"\n{section_header}\n")
         for ck, val in desired.items():
@@ -209,8 +210,15 @@ def main() -> None:
 
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
+    # Decrypt any ENC: fields so launch args get plaintext values
+    sys.path.insert(0, os.path.join(os.path.dirname(CONFIG_PATH)))
+    try:
+        from config_crypt import decrypt_config
+        decrypt_config(cfg)
+    except Exception:
+        pass
 
-    server_root   = _g2(cfg,"paths","server_root",       r"C:\ASA_Cluster\asa_server","paths")
+    server_root   = _g(cfg, "paths","server_root",        r"C:\ARK_ASA_Server\asa_server")
     cluster_dir   = _g(cfg, "paths","cluster_dir",       os.path.join(server_root,"cluster"))
     cluster_name  = _g(cfg, "cluster","cluster_name",    "MyCluster")
     cluster_id    = cluster_name.replace(" ","") + "Cluster"
@@ -227,6 +235,7 @@ def main() -> None:
     crossplay     = _g(cfg, "mods", "crossplay",                 "false").lower() == "true"
     mod_ids       = _g(cfg, "mods", "mod_ids",                   "").strip()
     active_event  = _g(cfg, "world","active_event",              "").strip()
+    public_ip     = _g(cfg, "network","public_ip",               "").strip()
 
     exe = os.path.join(server_root, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
     if not os.path.exists(exe):
@@ -268,6 +277,7 @@ def main() -> None:
     if crossplay:    flags.append("-crossplay")
     if mod_ids:      flags.append(f"-GameModIds={mod_ids}")
     if active_event: flags.append(f"-ActiveEvent={active_event}")
+    if public_ip:    flags.append(f"-PublicIPForSteam={public_ip}")
 
     print(f"Launching {display}...")
     print(f"  Session : {session_name}")

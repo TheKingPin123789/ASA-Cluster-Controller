@@ -3,6 +3,7 @@ setup_wizard.py — First-run (or re-run) configuration wizard.
 Writes config.ini in the same directory.
 """
 
+import ctypes
 import io
 import os
 import re
@@ -14,8 +15,37 @@ import urllib.request
 import zipfile
 import configparser
 from pathlib import Path
+from config_crypt import encrypt_cfg_value, decrypt_cfg_value
 
 CONFIG_PATH      = Path(__file__).resolve().parent / "config.ini"
+
+
+def _wizard_ram_max_maps() -> int:
+    """Return the RAM-based suggested max concurrent maps: floor((total_gb - 15) / 12), min 1."""
+    try:
+        class _MEMSTATEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength",                ctypes.c_ulong),
+                ("dwMemoryLoad",            ctypes.c_ulong),
+                ("ullTotalPhys",            ctypes.c_ulonglong),
+                ("ullAvailPhys",            ctypes.c_ulonglong),
+                ("ullTotalPageFile",        ctypes.c_ulonglong),
+                ("ullAvailPageFile",        ctypes.c_ulonglong),
+                ("ullTotalVirtual",         ctypes.c_ulonglong),
+                ("ullAvailVirtual",         ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+        stat = _MEMSTATEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        total_gb = stat.ullTotalPhys / (1024 ** 3)
+        if total_gb > 15:
+            return max(1, int((total_gb - 15) / 12))
+    except Exception:
+        pass
+    return 3
+
+
 _STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
 _ASA_APP_ID   = "2430930"
 
@@ -112,7 +142,11 @@ def _ask_password_optional() -> str:
 
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using PBKDF2-SHA256 with a random salt.
+    Format: pbkdf2:<salt_hex>:<hash_hex>"""
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return f"pbkdf2:{salt.hex()}:{key.hex()}"
 
 
 def _download_steamcmd(steamcmd_exe: str) -> bool:
@@ -225,7 +259,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     default_map = _ask_choice(
         "Default map (always kept running)",
         MAPS,
-        prev_get("cluster", "default_map", "ragnarok"),
+        prev_get("cluster", "default_map", "theisland"),
     )
     print()
 
@@ -258,25 +292,28 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     # ── Performance ───────────────────────────────────────
     print("[ Performance ]")
     print()
-    print("  Each active map requires roughly 10 GB of free RAM.")
-    print("  Make sure your machine has enough before increasing this limit.")
+    _ram_suggested = _wizard_ram_max_maps()
+    print(f"  Each active map requires roughly 12 GB of RAM, plus 15 GB overhead.")
+    print(f"  Based on your system RAM, the suggested maximum is {_ram_suggested} map(s).")
+    print(f"  You can set a lower value; setting a higher value is not recommended.")
     print()
 
+    _prev_max = int(prev_get("limits", "max_active_servers", str(_ram_suggested)))
     max_active = _ask_int(
         "Maximum simultaneously active maps",
-        default=int(prev_get("performance", "max_active_servers", "3")),
+        default=min(_prev_max, _ram_suggested),
         min_val=1,
         max_val=len(MAPS),
     )
-    ram_needed = max_active * 10
-    print(f"  → You will need at least {ram_needed} GB of RAM for {max_active} active map(s).")
+    ram_needed = max_active * 12 + 15
+    print(f"  → You will need at least {ram_needed} GB of RAM for {max_active} active map(s) + overhead.")
     print()
 
     max_players = _ask_int(
         "Max players per map",
-        default=int(prev_get("performance", "max_players", "70")),
+        default=int(prev_get("limits", "max_players", "70")),
         min_val=1,
-        max_val=200,
+        max_val=500,
     )
     print()
 
@@ -286,12 +323,12 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
 
     poll_seconds = _ask_int(
         "Controller poll interval (seconds)",
-        default=int(prev_get("timers", "poll_seconds", "5")),
+        default=int(prev_get("schedule", "poll_seconds", "5")),
         min_val=1, max_val=60,
     )
     map_shutdown_minutes = _ask_int(
         "Shut down an empty map after N minutes",
-        default=int(prev_get("timers", "map_shutdown_minutes", "15")),
+        default=int(prev_get("timers", "map_shutdown_minutes", "30")),
         min_val=1, max_val=1440,
     )
     startup_grace_minutes = _ask_int(
@@ -323,7 +360,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     max_backups = _ask_int(
         "Maximum number of backups to keep",
         default=int(prev_get("backup", "max_backups", "10")),
-        min_val=1, max_val=100,
+        min_val=1, max_val=25,
     )
     print()
 
@@ -337,7 +374,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     )
     restart_time = _ask_time_optional(
         "Daily restart time (leave blank to disable)",
-        prev_get("schedule", "restart_time", "06:00"),
+        prev_get("schedule", "restart_time", ""),
     )
     if restart_time:
         print(f"  → Cluster will restart and update daily at {restart_time}.")
@@ -358,9 +395,9 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
             except ValueError:
                 print("  Please enter a number (e.g. 1.0 or 2.5).")
 
-    xp_multiplier             = _ask_float("XP multiplier",             float(prev_get("rates", "xp_multiplier",             "1.0")))
-    taming_speed_multiplier   = _ask_float("Taming speed multiplier",   float(prev_get("rates", "taming_speed_multiplier",   "1.0")))
-    harvest_amount_multiplier = _ask_float("Harvest amount multiplier", float(prev_get("rates", "harvest_amount_multiplier", "1.0")))
+    xp_multiplier             = _ask_float("XP multiplier",             float(prev_get("rates", "xp_multiplier",             "2.0")))
+    taming_speed_multiplier   = _ask_float("Taming speed multiplier",   float(prev_get("rates", "taming_speed_multiplier",   "5.0")))
+    harvest_amount_multiplier = _ask_float("Harvest amount multiplier", float(prev_get("rates", "harvest_amount_multiplier", "5.0")))
     difficulty_offset         = _ask_float("Difficulty offset (1.0=max level 150)", float(prev_get("rates", "difficulty_offset", "1.0")))
     print()
 
@@ -368,18 +405,20 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     print("[ Breeding  (press Enter to keep defaults) ]")
     print()
 
-    mating_interval_mult = _ask_float("Mating interval multiplier", float(prev_get("rates", "mating_interval_multiplier", "1.0")))
-    egg_hatch_speed_mult = _ask_float("Egg hatch speed multiplier",  float(prev_get("rates", "egg_hatch_speed_multiplier",  "1.0")))
+    # Read from "breeding" (current section); fall back to "rates" for configs
+    # written before the section was renamed so re-runs preserve the saved value.
+    mating_interval_mult = _ask_float("Mating interval multiplier", float(prev_get("breeding", "mating_interval_multiplier", prev_get("rates", "mating_interval_multiplier", "0.001"))))
+    egg_hatch_speed_mult = _ask_float("Egg hatch speed multiplier",  float(prev_get("breeding", "egg_hatch_speed_multiplier",  prev_get("rates", "egg_hatch_speed_multiplier",  "50.0"))))
 
     baby_mature_speed = _ask_float(
         "Baby mature speed multiplier",
-        float(prev_get("breeding", "baby_mature_speed_multiplier", "1.0")),
+        float(prev_get("breeding", "baby_mature_speed_multiplier", "50.0")),
     )
 
     _ms = float(baby_mature_speed)
     _rec_interval = round(1.8 / _ms, 4) if _ms > 0 else 1.0
     _rec_grace    = round(max(5.0, _ms / 10), 1)
-    _rec_imprint  = 20.0
+    _rec_imprint  = 100.0  # guarantees 100% imprint in 1 cuddle for any creature
 
     baby_cuddle_interval = _ask_float("Baby cuddle interval multiplier",    _rec_interval)
     baby_cuddle_grace    = _ask_float("Baby cuddle grace period multiplier", _rec_grace)
@@ -391,7 +430,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     print()
     print("  Set a username and password to protect the web dashboard.")
     print("  Press Enter for both to skip — the dashboard will open without a login page.")
-    print("  You can always set or change credentials later in the Settings page.")
+    print("  To change credentials later, re-run setup_wizard.py.")
     print()
 
     _prev_user = prev_get("auth", "username", "")
@@ -436,6 +475,53 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         print("  → Dashboard login disabled — no login page will be shown.")
     print()
 
+    # ── Dashboard port & VPS ──────────────────────────────
+    print("[ Dashboard access ]")
+    print()
+    print("  Live server = dashboard accessible from outside your PC (anyone with the IP).")
+    print("  Localhost   = dashboard only accessible from this PC.")
+    print()
+    _prev_public = prev_get("network", "dashboard_public", "false").lower() == "true"
+    dashboard_public = _ask_yes_no("Run as live server (accessible from outside)?", default=_prev_public)
+    if dashboard_public:
+        print("  → Dashboard will be accessible from outside this PC.")
+    else:
+        print("  → Dashboard will only be accessible from this PC (localhost).")
+    print()
+    print("  Port the web dashboard listens on.")
+    print("  Leave blank to use the default (5000).")
+    _raw_port = _ask(
+        "Dashboard port (leave blank for 5000)",
+        prev_get("network", "web_status_port", ""),
+    ).strip()
+    if _raw_port:
+        try:
+            web_status_port = str(int(_raw_port))
+        except ValueError:
+            print("  Invalid port — using 5000.")
+            web_status_port = "5000"
+    else:
+        web_status_port = "5000"
+
+    if dashboard_public:
+        print()
+        print("  If you use a VPS relay (WireGuard tunnel) so outside players")
+        print("  can reach the server, enter the VPS public IP here.")
+        print("  Leave blank if players connect directly to your home IP.")
+        public_ip = _ask(
+            "VPS public IP (leave blank if none)",
+            prev_get("network", "public_ip", ""),
+        ).strip()
+        if public_ip:
+            print(f"  → ARK will advertise {public_ip} to Steam.")
+        else:
+            print("  → No VPS relay — using direct connection.")
+    else:
+        # Always carry forward the existing IP even when live mode is off —
+        # so re-enabling live mode later doesn't lose the setting.
+        public_ip = prev_get("network", "public_ip", "")
+    print()
+
     # ── Confirm & write ───────────────────────────────────
     print("[ Summary ]")
     print()
@@ -469,6 +555,9 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         print(f"  Dashboard login   : enabled (username: {dash_username})")
     else:
         print( "  Dashboard login   : disabled (no login page)")
+    print(f"  Live server       : {'yes (accessible from outside)' if dashboard_public else 'no (localhost only)'}")
+    print(f"  Dashboard port    : {web_status_port}")
+    print(f"  VPS public IP     : {public_ip if public_ip else 'none (direct connection)'}")
     print()
 
     if not _ask_yes_no("Save this configuration?", default=True):
@@ -480,12 +569,14 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     cfg["cluster"] = {
         "cluster_name": cluster_name,
         "cluster_id": cluster_id,
-        "rcon_password": rcon_password,
+        "rcon_password": encrypt_cfg_value(rcon_password),
         "default_map": default_map,
     }
     cfg["network"] = {
-        "rcon_host":      prev_get("network", "rcon_host",      "127.0.0.1"),
-        "web_status_port": prev_get("network", "web_status_port", "8880"),
+        "rcon_host":        prev_get("network", "rcon_host", "127.0.0.1"),
+        "web_status_port":  web_status_port,
+        "dashboard_public": "true" if dashboard_public else "false",
+        "public_ip":        public_ip,  # always written; empty string = disabled
     }
     cfg["paths"] = {
         "server_root": server_root,
@@ -493,10 +584,13 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "steamcmd_path": steamcmd_path,
     }
     cfg["limits"] = {
-        "max_active_servers":      str(max_active),
-        "max_players":             str(max_players),
-        "max_tamed_dinos":         prev_get("limits", "max_tamed_dinos",         "5000"),
-        "max_personal_tamed_dinos":prev_get("limits", "max_personal_tamed_dinos","40"),
+        "max_active_servers":       str(max_active),
+        "max_players":              str(max_players),
+        "max_tamed_dinos":          prev_get("limits", "max_tamed_dinos",          "5000"),
+        "max_personal_tamed_dinos": prev_get("limits", "max_personal_tamed_dinos", "40"),
+        "low_memory_mode":          prev_get("limits", "low_memory_mode",          "true"),
+        "no_sound":                 prev_get("limits", "no_sound",                 "true"),
+        "gc_purge_interval":        prev_get("limits", "gc_purge_interval",        "30"),
     }
     cfg["schedule"] = {
         "poll_seconds":             str(poll_seconds),
@@ -516,6 +610,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     cfg["backup"] = {
         "backup_dir":  backup_dir,
         "max_backups": str(max_backups),
+        "max_logs":    prev_get("backup", "max_logs", "10"),
     }
     cfg["world"] = {
         "day_time_speed_scale":                prev_get("world","day_time_speed_scale",               "1.0"),
@@ -594,6 +689,25 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
         "crossplay": prev_get("mods","crossplay","false"),
         "mod_ids":   prev_get("mods","mod_ids",  ""),
     }
+    cfg["crash"] = {
+        "auto_restart_on_crash":  prev_get("crash","auto_restart_on_crash",  "true"),
+        "crash_grace_seconds":    prev_get("crash","crash_grace_seconds",    "120"),
+        "crash_cooldown_minutes": prev_get("crash","crash_cooldown_minutes", "5"),
+        "max_crash_restarts":     prev_get("crash","max_crash_restarts",     "3"),
+        "crash_window_minutes":   prev_get("crash","crash_window_minutes",   "60"),
+    }
+    cfg["discord"] = {
+        "discord_enabled":        prev_get("discord","discord_enabled",        "false"),
+        "use_bot":                prev_get("discord","use_bot",                "false"),
+        "webhook_url":            encrypt_cfg_value(decrypt_cfg_value(prev_get("discord","webhook_url",""))),
+        "notify_server_events":   prev_get("discord","notify_server_events",   "true"),
+        "notify_crash_events":    prev_get("discord","notify_crash_events",    "true"),
+        "notify_cluster_events":  prev_get("discord","notify_cluster_events",  "true"),
+        "bot_token":              encrypt_cfg_value(decrypt_cfg_value(prev_get("discord","bot_token",""))),
+        "notification_channel_id":prev_get("discord","notification_channel_id",""),
+        "command_channel_id":     prev_get("discord","command_channel_id",     ""),
+        "admin_role_name":        prev_get("discord","admin_role_name",        "Admin"),
+    }
 
     # Only write [auth] if credentials were provided — no section means auth disabled
     if dash_username and dash_password_hash:
@@ -602,7 +716,8 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
             "password_hash": dash_password_hash,
             # Preserve the existing secret_key so active browser sessions survive a
             # wizard re-run. The dashboard generates it on first start if missing.
-            "secret_key":    prev_get("auth", "secret_key", ""),
+            # Keep it encrypted — decrypt first so we don't double-encrypt.
+            "secret_key":    encrypt_cfg_value(decrypt_cfg_value(prev_get("auth", "secret_key", ""))),
         }
     # If auth was cleared (user chose to disable), omit the section entirely so
     # the dashboard opens without a login page.
@@ -619,16 +734,114 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     return cfg
 
 
+# ── Hardcoded defaults for every key the controller/dashboard expects ─────────
+_DEFAULTS: dict = {
+    "cluster":  {"cluster_name": "MyCluster", "cluster_id": "MyClusterCluster",
+                 "default_map": "theisland"},
+    "network":  {"rcon_host": "127.0.0.1", "web_status_port": "5000",
+                 "public_ip": "", "dashboard_public": "false"},
+    "limits":   {"max_active_servers": "3", "max_players": "70",
+                 "max_tamed_dinos": "5000", "max_personal_tamed_dinos": "1000",
+                 "low_memory_mode": "true", "no_sound": "true", "gc_purge_interval": "30"},
+    "schedule": {"poll_seconds": "5", "check_updates_on_startup": "true", "restart_time": ""},
+    "timers":   {"map_shutdown_minutes": "30", "startup_grace_minutes": "15",
+                 "autosave_minutes": "30", "cluster_shutdown_minutes": "30",
+                 "server_start_timeout_seconds": "300", "save_before_exit_seconds": "10",
+                 "post_shutdown_wait_seconds": "30", "crash_detection_threshold": "5"},
+    "backup":   {"max_backups": "10", "max_logs": "10"},
+    "world":    {"day_time_speed_scale": "1.0", "night_time_speed_scale": "1.0",
+                 "dino_count_multiplier": "1.0", "resources_respawn_period_multiplier": "1.0",
+                 "active_event": "", "disable_weather_fog": "false"},
+    "rates":    {"xp_multiplier": "2.0", "taming_speed_multiplier": "5.0",
+                 "harvest_amount_multiplier": "5.0", "difficulty_offset": "1.0",
+                 "item_stack_size_multiplier": "5.0", "loot_quality_multiplier": "5.0",
+                 "fishing_loot_quality_multiplier": "5.0",
+                 "supply_crate_loot_quality_multiplier": "5.0",
+                 "global_spoiling_time_multiplier": "1.0",
+                 "global_item_decomposition_time_multiplier": "1.0",
+                 "global_corpse_decomposition_time_multiplier": "1.0",
+                 "crop_growth_speed_multiplier": "10.0",
+                 "fuel_consumption_interval_multiplier": "1.0"},
+    "survival": {"player_food_drain_multiplier": "1.0", "player_water_drain_multiplier": "1.0",
+                 "player_stamina_drain_multiplier": "1.0",
+                 "player_health_recovery_multiplier": "1.0",
+                 "dino_food_drain_multiplier": "1.0", "dino_health_recovery_multiplier": "1.0"},
+    "combat":   {"player_damage_multiplier": "1.0", "player_resistance_multiplier": "1.0",
+                 "dino_damage_multiplier": "1.0", "dino_resistance_multiplier": "1.0",
+                 "tamed_dino_damage_multiplier": "1.0", "tamed_dino_resistance_multiplier": "1.0",
+                 "structure_damage_multiplier": "1.0", "show_floating_damage_text": "false",
+                 "allow_hit_markers": "true"},
+    "breeding": {"mating_interval_multiplier": "0.001", "mating_speed_multiplier": "1.0",
+                 "egg_hatch_speed_multiplier": "50.0", "lay_egg_interval_multiplier": "0.5",
+                 "baby_mature_speed_multiplier": "50.0", "baby_cuddle_interval_multiplier": "0.036",
+                 "baby_cuddle_grace_period_multiplier": "5.0",
+                 "baby_imprint_amount_multiplier": "100.0"},
+    "structures": {"structure_pickup_time_after_placement": "300",
+                   "per_platform_max_structures_multiplier": "1.0"},
+    "flags":    {"allow_third_person": "false", "show_map_player_location": "true",
+                 "always_allow_structure_pickup": "true", "disable_structure_decay_pve": "false",
+                 "disable_dino_decay_pve": "false", "allow_cave_building_pve": "false",
+                 "allow_anyone_baby_imprint_cuddle": "false", "allow_flyer_carry_pve": "true",
+                 "allow_flyer_speed_leveling": "false", "prevent_download_survivors": "false",
+                 "prevent_download_items": "false", "require_powered_cryofridge": "true",
+                 "disable_cryo_sickness_pvp": "false", "force_allow_cave_flyers": "false",
+                 "exclusive_join": "false"},
+    "mods":     {"crossplay": "false", "mod_ids": ""},
+    "crash":    {"auto_restart_on_crash": "true", "crash_grace_seconds": "120",
+                 "crash_cooldown_minutes": "5", "max_crash_restarts": "3",
+                 "crash_window_minutes": "60"},
+    "discord":  {"discord_enabled": "false", "use_bot": "false", "webhook_url": "",
+                 "notify_server_events": "true", "notify_crash_events": "true",
+                 "notify_cluster_events": "true", "bot_token": "",
+                 "notification_channel_id": "", "command_channel_id": "",
+                 "admin_role_name": "Admin"},
+}
+
+# Keys that are machine-specific paths — skip auto-filling if missing so the user
+# is not surprised by wrong paths appearing silently.
+_SKIP_AUTOFILL: set = {"server_root", "cluster_dir", "steamcmd_path", "backup_dir"}
+
+
+def _backfill_config(cfg: configparser.ConfigParser) -> bool:
+    """
+    Add any missing sections/keys from _DEFAULTS to cfg in-place.
+    Writes the updated config back to disk only if something was added.
+    Returns True if the file was updated.
+    """
+    added: list[str] = []
+    for section, keys in _DEFAULTS.items():
+        if not cfg.has_section(section):
+            cfg.add_section(section)
+        for key, default in keys.items():
+            if key in _SKIP_AUTOFILL:
+                continue
+            if not cfg.has_option(section, key):
+                cfg.set(section, key, default)
+                added.append(f"[{section}] {key} = {default!r}")
+    if added:
+        try:
+            with CONFIG_PATH.open("w", encoding="utf-8") as f:
+                cfg.write(f)
+            print(f"  Config backfilled {len(added)} missing key(s) with defaults.")
+        except Exception as exc:
+            print(f"  WARNING: could not write backfilled config: {exc}")
+        return True
+    return False
+
+
 def prompt_setup_on_startup() -> configparser.ConfigParser:
     """
     Called at controller startup.
     If config.ini is missing, runs the interactive setup wizard right here
-    in the CMD window.  If config.ini already exists, loads and returns it.
+    in the CMD window.  If config.ini already exists, loads it and backfills
+    any keys that are missing (e.g. after an update added new settings).
     Returns the active ConfigParser.
     """
     if not config_exists():
         return run_wizard()
-    return load_config()
+    cfg = load_config()
+    _backfill_config(cfg)
+    return cfg
 
 
 if __name__ == "__main__":
