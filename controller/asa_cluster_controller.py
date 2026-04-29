@@ -1062,6 +1062,18 @@ def _start_server_locked(key: str) -> bool:
     if state.is_running or state.is_starting:
         return False
 
+    # Final safety guard — refuse to launch if the game port is already occupied.
+    # This prevents a duplicate process when adopt_running_servers() missed a
+    # server that came up between the port check and this call.
+    pid = get_pid_on_port(state.cfg.game_port)
+    if pid:
+        log(f"start_server({key}) blocked — port {state.cfg.game_port} already "
+            f"in use by PID {pid}; marking as starting and waiting for RCON")
+        state.is_starting        = True
+        state.start_requested_at = time.time()
+        state.process_pid        = pid
+        return False
+
     exe = os.path.join(SERVER_ROOT, "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe")
     if not os.path.exists(exe):
         log(f"ArkAscendedServer.exe not found at: {exe}")
@@ -2828,19 +2840,37 @@ def _save_running_maps() -> None:
 def adopt_running_servers() -> None:
     """On controller startup, probe every configured server via RCON.
     Any that already respond are adopted as running so we never spawn a
-    duplicate process on the same port."""
+    duplicate process on the same port.
+
+    If RCON is not up yet (server still loading), fall back to a port check.
+    Marking the server as is_starting prevents ensure_default_server() from
+    launching a second copy while we wait for RCON to become available.
+    """
     now = time.time()
     for state in SERVER_STATES.values():
         try:
             rcon_command(state.cfg, "ListPlayers", timeout=4.0)
-            # RCON replied — server is already up
+            # RCON replied — server is fully up
             state.is_running  = True
             state.is_starting = False
             state.last_seen_online_at = now
             state.online_since        = now
-            log(f"ADOPTED: {state.cfg.key} already running — skipping start")
+            log(f"ADOPTED: {state.cfg.key} already running (RCON) — skipping start")
+            continue
         except Exception:
-            pass   # not running or not reachable yet — that's fine
+            pass
+
+        # RCON didn't respond — check whether the game port is already in use.
+        # This catches the case where the server is running but still loading
+        # (RCON not ready yet).  Marking is_starting keeps ensure_default_server()
+        # from launching a duplicate while the server finishes coming online.
+        pid = get_pid_on_port(state.cfg.game_port)
+        if pid:
+            state.is_starting         = True
+            state.start_requested_at  = now
+            state.process_pid         = pid
+            log(f"ADOPTED: {state.cfg.key} port {state.cfg.game_port} in use "
+                f"(PID {pid}) — marking as starting, waiting for RCON")
 
 
 def restore_maps_after_restart() -> None:
