@@ -1976,15 +1976,43 @@ def parse_list_players_detailed(raw: str) -> List[Dict]:
 
 
 def get_pid_on_port(port: int) -> Optional[int]:
+    """Return the PID of the process bound to *port* (TCP LISTENING or UDP),
+    or None if nothing is bound.
+
+    ARK's game port is UDP — netstat shows it without a 'LISTENING' state
+    word, so we must match UDP entries separately from TCP ones.
+
+    netstat -ano line formats on Windows:
+      TCP  0.0.0.0:27023  0.0.0.0:0   LISTENING  <pid>
+      UDP  0.0.0.0:7807   *:*                     <pid>
+    """
     try:
         result = subprocess.run(
             ["netstat", "-ano"], capture_output=True, text=True, timeout=5,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         for line in result.stdout.splitlines():
-            if f":{port}" in line and "LISTENING" in line:
-                parts = line.split()
-                return int(parts[-1])
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            proto      = parts[0].upper()          # TCP / UDP
+            local_addr = parts[1]                  # 0.0.0.0:7807  or [::]:7807
+
+            # Only match when *port* is the LOCAL (server-side) port
+            if not local_addr.endswith(f":{port}"):
+                continue
+
+            if proto == "TCP" and parts[3] == "LISTENING":
+                try:
+                    return int(parts[-1])
+                except (ValueError, IndexError):
+                    continue
+            elif proto == "UDP":
+                # UDP has no state column; format is: UDP local *:*  pid
+                try:
+                    return int(parts[-1])
+                except (ValueError, IndexError):
+                    continue
     except Exception:
         pass
     return None
