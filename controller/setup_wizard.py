@@ -328,7 +328,7 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
     )
     map_shutdown_minutes = _ask_int(
         "Shut down an empty map after N minutes",
-        default=int(prev_get("timers", "map_shutdown_minutes", "15")),
+        default=int(prev_get("timers", "map_shutdown_minutes", "30")),
         min_val=1, max_val=1440,
     )
     startup_grace_minutes = _ask_int(
@@ -395,9 +395,9 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
             except ValueError:
                 print("  Please enter a number (e.g. 1.0 or 2.5).")
 
-    xp_multiplier             = _ask_float("XP multiplier",             float(prev_get("rates", "xp_multiplier",             "1.0")))
-    taming_speed_multiplier   = _ask_float("Taming speed multiplier",   float(prev_get("rates", "taming_speed_multiplier",   "1.0")))
-    harvest_amount_multiplier = _ask_float("Harvest amount multiplier", float(prev_get("rates", "harvest_amount_multiplier", "1.0")))
+    xp_multiplier             = _ask_float("XP multiplier",             float(prev_get("rates", "xp_multiplier",             "2.0")))
+    taming_speed_multiplier   = _ask_float("Taming speed multiplier",   float(prev_get("rates", "taming_speed_multiplier",   "5.0")))
+    harvest_amount_multiplier = _ask_float("Harvest amount multiplier", float(prev_get("rates", "harvest_amount_multiplier", "5.0")))
     difficulty_offset         = _ask_float("Difficulty offset (1.0=max level 150)", float(prev_get("rates", "difficulty_offset", "1.0")))
     print()
 
@@ -407,12 +407,12 @@ def run_wizard(existing: configparser.ConfigParser | None = None) -> configparse
 
     # Read from "breeding" (current section); fall back to "rates" for configs
     # written before the section was renamed so re-runs preserve the saved value.
-    mating_interval_mult = _ask_float("Mating interval multiplier", float(prev_get("breeding", "mating_interval_multiplier", prev_get("rates", "mating_interval_multiplier", "1.0"))))
-    egg_hatch_speed_mult = _ask_float("Egg hatch speed multiplier",  float(prev_get("breeding", "egg_hatch_speed_multiplier",  prev_get("rates", "egg_hatch_speed_multiplier",  "1.0"))))
+    mating_interval_mult = _ask_float("Mating interval multiplier", float(prev_get("breeding", "mating_interval_multiplier", prev_get("rates", "mating_interval_multiplier", "0.001"))))
+    egg_hatch_speed_mult = _ask_float("Egg hatch speed multiplier",  float(prev_get("breeding", "egg_hatch_speed_multiplier",  prev_get("rates", "egg_hatch_speed_multiplier",  "50.0"))))
 
     baby_mature_speed = _ask_float(
         "Baby mature speed multiplier",
-        float(prev_get("breeding", "baby_mature_speed_multiplier", "1.0")),
+        float(prev_get("breeding", "baby_mature_speed_multiplier", "50.0")),
     )
 
     _ms = float(baby_mature_speed)
@@ -741,10 +741,10 @@ _DEFAULTS: dict = {
     "network":  {"rcon_host": "127.0.0.1", "web_status_port": "5000",
                  "public_ip": "", "dashboard_public": "false"},
     "limits":   {"max_active_servers": "3", "max_players": "70",
-                 "max_tamed_dinos": "5000", "max_personal_tamed_dinos": "40",
+                 "max_tamed_dinos": "5000", "max_personal_tamed_dinos": "1000",
                  "low_memory_mode": "true", "no_sound": "true", "gc_purge_interval": "30"},
     "schedule": {"poll_seconds": "5", "check_updates_on_startup": "true", "restart_time": ""},
-    "timers":   {"map_shutdown_minutes": "60", "startup_grace_minutes": "15",
+    "timers":   {"map_shutdown_minutes": "30", "startup_grace_minutes": "15",
                  "autosave_minutes": "30", "cluster_shutdown_minutes": "30",
                  "server_start_timeout_seconds": "300", "save_before_exit_seconds": "10",
                  "post_shutdown_wait_seconds": "30", "crash_detection_threshold": "5"},
@@ -752,15 +752,15 @@ _DEFAULTS: dict = {
     "world":    {"day_time_speed_scale": "1.0", "night_time_speed_scale": "1.0",
                  "dino_count_multiplier": "1.0", "resources_respawn_period_multiplier": "1.0",
                  "active_event": "", "disable_weather_fog": "false"},
-    "rates":    {"xp_multiplier": "1.0", "taming_speed_multiplier": "1.0",
-                 "harvest_amount_multiplier": "1.0", "difficulty_offset": "1.0",
-                 "item_stack_size_multiplier": "1.0", "loot_quality_multiplier": "1.0",
-                 "fishing_loot_quality_multiplier": "1.0",
-                 "supply_crate_loot_quality_multiplier": "1.0",
+    "rates":    {"xp_multiplier": "2.0", "taming_speed_multiplier": "5.0",
+                 "harvest_amount_multiplier": "5.0", "difficulty_offset": "1.0",
+                 "item_stack_size_multiplier": "5.0", "loot_quality_multiplier": "5.0",
+                 "fishing_loot_quality_multiplier": "5.0",
+                 "supply_crate_loot_quality_multiplier": "5.0",
                  "global_spoiling_time_multiplier": "1.0",
                  "global_item_decomposition_time_multiplier": "1.0",
                  "global_corpse_decomposition_time_multiplier": "1.0",
-                 "crop_growth_speed_multiplier": "1.0",
+                 "crop_growth_speed_multiplier": "10.0",
                  "fuel_consumption_interval_multiplier": "1.0"},
     "survival": {"player_food_drain_multiplier": "1.0", "player_water_drain_multiplier": "1.0",
                  "player_stamina_drain_multiplier": "1.0",
@@ -771,12 +771,12 @@ _DEFAULTS: dict = {
                  "tamed_dino_damage_multiplier": "1.0", "tamed_dino_resistance_multiplier": "1.0",
                  "structure_damage_multiplier": "1.0", "show_floating_damage_text": "false",
                  "allow_hit_markers": "true"},
-    "breeding": {"mating_interval_multiplier": "1.0", "mating_speed_multiplier": "1.0",
-                 "egg_hatch_speed_multiplier": "1.0", "lay_egg_interval_multiplier": "1.0",
-                 "baby_mature_speed_multiplier": "1.0", "baby_cuddle_interval_multiplier": "1.8",
-                 "baby_cuddle_grace_period_multiplier": "1.0",
+    "breeding": {"mating_interval_multiplier": "0.001", "mating_speed_multiplier": "1.0",
+                 "egg_hatch_speed_multiplier": "50.0", "lay_egg_interval_multiplier": "0.5",
+                 "baby_mature_speed_multiplier": "50.0", "baby_cuddle_interval_multiplier": "0.036",
+                 "baby_cuddle_grace_period_multiplier": "5.0",
                  "baby_imprint_amount_multiplier": "100.0"},
-    "structures": {"structure_pickup_time_after_placement": "30",
+    "structures": {"structure_pickup_time_after_placement": "300",
                    "per_platform_max_structures_multiplier": "1.0"},
     "flags":    {"allow_third_person": "false", "show_map_player_location": "true",
                  "always_allow_structure_pickup": "true", "disable_structure_decay_pve": "false",
