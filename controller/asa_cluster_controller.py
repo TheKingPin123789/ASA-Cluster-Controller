@@ -1140,6 +1140,12 @@ def _start_server_locked(key: str) -> bool:
     if _mod_ids:        flags.append(f"-GameModIds={_mod_ids}")
     if _active_event:   flags.append(f"-ActiveEvent={_active_event}")
 
+    # Pass CurseForge API key as env var so cfcore.ue enables mod management
+    _launch_env = os.environ.copy()
+    _cf_key = _lr("mods", "curseforge_api_key", "").strip()
+    if _cf_key:
+        _launch_env["CURSEFORGE_API_KEY"] = _cf_key
+
     log(f"Starting {key}")
     # CREATE_BREAKAWAY_FROM_JOB (0x01000000) ensures the server process is
     # fully detached from the controller's job object so it keeps running
@@ -1148,6 +1154,7 @@ def _start_server_locked(key: str) -> bool:
         [exe, map_arg] + flags,
         cwd=os.path.dirname(exe),
         creationflags=subprocess.CREATE_NEW_CONSOLE | 0x01000000,
+        env=_launch_env,
     )
     state.process_pid = proc.pid
     state.is_starting = True
