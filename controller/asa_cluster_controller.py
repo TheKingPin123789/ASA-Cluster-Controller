@@ -1124,6 +1124,7 @@ def _start_server_locked(key: str) -> bool:
     )
     flags = [
         "-server", "-log", "-servergamelog", "-NoBattlEye",
+        "-automanagedmods",
         f"-ClusterDirOverride={CLUSTER_DIR}",
         f"-ClusterId={CLUSTER_ID}",
     ]
