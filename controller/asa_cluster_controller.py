@@ -1108,7 +1108,7 @@ def _start_server_locked(key: str) -> bool:
     _cave_flyers    = _lr("flags",  "force_allow_cave_flyers",    "false").lower() == "true"
     _excl_join      = _lr("flags",  "exclusive_join",             "false").lower() == "true"
     _crossplay      = _lr("mods",   "crossplay",                  "false").lower() == "true"
-    _mod_ids        = _lr("mods",   "mod_ids",                    "").strip()
+    _mod_ids        = _lr("mods",   "mod_ids",                    "").replace(" ", "").strip(",")
     _active_event   = _lr("world",  "active_event",               "").strip()
 
     session_name = f"{CLUSTER_NAME}_{state.cfg.display_name.replace(' ', '')}"
