@@ -831,8 +831,13 @@ def _patch_game_user_settings() -> None:
         "AllowFlyerCarryPvE":                      _b("flags",     "allow_flyer_carry_pve",                                  "true"),
         "AllowFlyerSpeedLeveling":                 _b("flags",     "allow_flyer_speed_leveling",                             "false"),
         "DisableCryoSicknessPVP":                  _b("flags",     "disable_cryo_sickness_pvp",                              "false"),
-        # bDisableCryopodEnemyCheck=True removes the powered-fridge-nearby requirement (inverted flag)
-        "bDisableCryopodEnemyCheck":               "False" if r("flags","require_powered_cryofridge","true").lower() == "true" else "True",
+        # NOTE: ARK ASA does not expose a server ini toggle to remove the
+        # "nearby powered CryoFridge" deployment requirement in PvP — that
+        # check is hardcoded.  A mod (e.g. "Cryo Anywhere") is required to
+        # bypass it.  bDisableCryopodEnemyCheck only suppresses the separate
+        # "no enemies nearby" check; require_powered_cryofridge in config.ini
+        # is kept for future use if Wildcard adds the toggle.
+        "bDisableCryopodEnemyCheck":               _b("flags",     "disable_cryo_sickness_pvp",                              "false"),
     }
 
     # Build a lowercase lookup so we can match ARK's own lowercase key names
