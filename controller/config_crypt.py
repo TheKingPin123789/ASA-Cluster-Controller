@@ -15,9 +15,12 @@ setup_wizard.py also imports encrypt_cfg_value() when writing sensitive fields.
 
 import base64
 import hashlib
+import logging
 
 # Fields that should be encrypted when written and decrypted when read
 SENSITIVE_KEYS = {"rcon_password", "secret_key", "webhook_url", "bot_token"}
+
+_log = logging.getLogger(__name__)
 
 _ENC_PREFIX = "ENC:"
 
@@ -31,8 +34,10 @@ def _get_fernet():
                              r"SOFTWARE\Microsoft\Cryptography")
         machine_guid, _ = winreg.QueryValueEx(reg, "MachineGuid")
         winreg.CloseKey(reg)
-    except Exception:
-        # Fallback: use hostname — not as unique but still better than plaintext
+    except OSError as exc:
+        # Registry unavailable (non-Windows or restricted permissions) — fall back
+        # to hostname. Less unique, but still better than plaintext.
+        _log.debug("Could not read MachineGuid from registry (%s); falling back to hostname.", exc)
         import socket
         machine_guid = socket.gethostname()
     raw_key = hashlib.sha256(machine_guid.encode()).digest()
@@ -53,12 +58,15 @@ def decrypt_cfg_value(value: str) -> str:
         return value  # plaintext or empty — pass through
     try:
         return _get_fernet().decrypt(value[len(_ENC_PREFIX):].encode()).decode()
-    except Exception:
+    except Exception as exc:
         # Decryption failed — likely config.ini was copied from another machine.
         # Return empty string so the caller gets a clear auth failure rather than
         # silently using the "ENC:..." string as a literal password.
-        print(f"WARNING: config_crypt — failed to decrypt a config value. "
-              f"If you copied config.ini from another machine, re-run setup_wizard.py.")
+        _log.warning(
+            "Failed to decrypt a config value (%s). "
+            "If you copied config.ini from another machine, re-run setup_wizard.py.",
+            exc,
+        )
         return ""
 
 

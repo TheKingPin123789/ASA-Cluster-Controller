@@ -1,9 +1,12 @@
 import os
 import re
 import time
+import logging
 import threading
 import configparser
 from pathlib import Path
+
+from maps import MAPS, MAP_SHORT_NAMES
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -13,29 +16,7 @@ STATUS_FILE = BASE_DIR / "cluster_status.txt"
 CONFIG_FILE = BASE_DIR / "config.ini"
 STOP_FILE = BASE_DIR / "controller.stop"
 
-MAPS = [
-    "ragnarok",
-    "thecenter",
-    "valguero",
-    "theisland",
-    "scorchedearth",
-    "aberration",
-    "extinction",
-    "lostcolony",
-    "astraeos",
-]
-
-MAP_SHORT_NAMES = {
-    "ragnarok":     ["rag"],
-    "thecenter":    ["tc", "center"],
-    "valguero":     ["val"],
-    "theisland":    ["ti", "island"],
-    "scorchedearth": ["se", "scorched"],
-    "aberration":   ["ab"],
-    "extinction":   ["ext"],
-    "lostcolony":   ["lost"],
-    "astraeos":     [],
-}
+_log = logging.getLogger(__name__)
 
 
 def get_cluster_shutdown_minutes() -> int:
@@ -44,8 +25,8 @@ def get_cluster_shutdown_minutes() -> int:
         cfg = configparser.ConfigParser()
         cfg.read(CONFIG_FILE, encoding="utf-8")
         return int(cfg.get("timers", "cluster_shutdown_minutes"))
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("Could not read cluster_shutdown_minutes from config: %s", exc)
 
     # Fallback: parse the constant out of the controller source
     try:
@@ -56,8 +37,8 @@ def get_cluster_shutdown_minutes() -> int:
         m = re.search(r"CLUSTER_SHUTDOWN_DELAY_SECONDS\s*=\s*(\d+)", src)
         if m:
             return max(1, int(m.group(1)) // 60)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("Could not parse shutdown delay from controller source: %s", exc)
 
     return 30
 

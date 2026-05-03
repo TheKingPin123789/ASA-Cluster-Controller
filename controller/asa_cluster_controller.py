@@ -18,12 +18,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import logging
+
 from setup_wizard import prompt_setup_on_startup
 from config_crypt import decrypt_config
+from maps import MAP_DEFS, MAP_ALIASES
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
+
+# Set up a module-level logger for the controller. StreamHandler mirrors the
+# existing stdout output; file writing stays manual in log() to preserve the
+# admin-context switching and daily rotation logic.
+_logger = logging.getLogger("asa")
+_logger.setLevel(logging.DEBUG)
+_logger.propagate = False
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
+_logger.addHandler(_stream_handler)
 
 MCRCON_EXE = os.path.join(BASE_DIR, "mcrcon.exe")
 ADMIN_COMMAND_FILE = os.path.join(BASE_DIR, "admin_commands.txt")
@@ -64,8 +77,10 @@ def _ci_int(section: str, key: str, fallback: int, *, multiplier: int = 1) -> in
     try:
         return int(raw) * multiplier
     except ValueError:
-        print(f"WARNING: config [{section}] {key} = {raw!r} is not a valid integer "
-              f"— using default {fallback * multiplier}")
+        _logger.warning(
+            "config [%s] %s = %r is not a valid integer — using default %d",
+            section, key, raw, fallback * multiplier,
+        )
         return fallback * multiplier
 
 # ── Cluster / network / paths ─────────────────────────────────────────────────
@@ -222,20 +237,8 @@ class ServerConfig:
 
 def _make_servers() -> Dict[str, ServerConfig]:
     """Build SERVERS from config-loaded values so session names and passwords are dynamic."""
-    _map_defs = [
-        # key              display_name      map_name             game_port  query_port  rcon_port
-        ("ragnarok",       "Ragnarok",       "Ragnarok_WP",       7777,      27015,      27020),
-        ("thecenter",      "The Center",     "TheCenter_WP",      7787,      27025,      27021),
-        ("valguero",       "Valguero",       "Valguero_WP",       7797,      27035,      27022),
-        ("theisland",      "The Island",     "TheIsland_WP",      7807,      27045,      27023),
-        ("scorchedearth",  "Scorched Earth", "ScorchedEarth_WP",  7817,      27055,      27024),
-        ("aberration",     "Aberration",     "Aberration_WP",     7827,      27065,      27029),
-        ("extinction",     "Extinction",     "Extinction_WP",     7837,      27075,      27026),
-        ("lostcolony",     "Lost Colony",    "LostColony_WP",     7847,      27085,      27027),
-        ("astraeos",       "Astraeos",       "Astraeos_WP",       7857,      27095,      27028),
-    ]
     result = {}
-    for key, display, map_name, game_port, query_port, rcon_port in _map_defs:
+    for key, (display, map_name, game_port, query_port, rcon_port) in MAP_DEFS.items():
         result[key] = ServerConfig(
             key=key,
             display_name=display,
@@ -250,29 +253,7 @@ def _make_servers() -> Dict[str, ServerConfig]:
 
 SERVERS: Dict[str, ServerConfig] = _make_servers()
 
-ALIASES = {
-    "tc": "thecenter",
-    "center": "thecenter",
-    "thecenter": "thecenter",
-    "rag": "ragnarok",
-    "ragnarok": "ragnarok",
-    "val": "valguero",
-    "valguero": "valguero",
-    "ti": "theisland",
-    "island": "theisland",
-    "theisland": "theisland",
-    "se": "scorchedearth",
-    "scorched": "scorchedearth",
-    "scorchedearth": "scorchedearth",
-    "ab": "aberration",
-    "abberation": "aberration",
-    "aberration": "aberration",
-    "ext": "extinction",
-    "extinction": "extinction",
-    "lost": "lostcolony",
-    "lostcolony": "lostcolony",
-    "astraeos": "astraeos",
-}
+ALIASES = MAP_ALIASES
 
 
 @dataclass
@@ -369,12 +350,11 @@ def _maybe_rotate_log_daily() -> None:
 
 def log(msg: str) -> None:
     _maybe_rotate_log_daily()
-    line = f"[{time.strftime('%H:%M:%S')}] {msg}"
-    print(line, flush=True)
+    _logger.info(msg)
     target = ADMIN_LOG_FILE if _is_admin_context else LOG_FILE
     try:
         with open(target, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+            f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
     except Exception:
         pass
 

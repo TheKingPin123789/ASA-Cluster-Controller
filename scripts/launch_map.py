@@ -14,21 +14,16 @@ import subprocess
 import configparser
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
-_BASE_DIR    = os.path.dirname(_SCRIPTS_DIR)
-CONFIG_PATH  = os.path.join(_BASE_DIR, "controller", "config.ini")
+_SCRIPTS_DIR    = os.path.dirname(os.path.abspath(__file__))
+_BASE_DIR       = os.path.dirname(_SCRIPTS_DIR)
+_CONTROLLER_DIR = os.path.join(_BASE_DIR, "controller")
+CONFIG_PATH     = os.path.join(_CONTROLLER_DIR, "config.ini")
 
-MAP_DEFS = {
-    "ragnarok":      ("Ragnarok",       "Ragnarok_WP",      7777, 27015, 27020),
-    "thecenter":     ("The Center",     "TheCenter_WP",     7787, 27025, 27021),
-    "valguero":      ("Valguero",       "Valguero_WP",      7797, 27035, 27022),
-    "theisland":     ("The Island",     "TheIsland_WP",     7807, 27045, 27023),
-    "scorchedearth": ("Scorched Earth", "ScorchedEarth_WP", 7817, 27055, 27024),
-    "aberration":    ("Aberration",     "Aberration_WP",    7827, 27065, 27029),
-    "extinction":    ("Extinction",     "Extinction_WP",    7837, 27075, 27026),
-    "lostcolony":    ("Lost Colony",    "LostColony_WP",    7847, 27085, 27027),
-    "astraeos":      ("Astraeos",       "Astraeos_WP",      7857, 27095, 27028),
-}
+# Make controller package importable from this scripts/ subdirectory
+if _CONTROLLER_DIR not in sys.path:
+    sys.path.insert(0, _CONTROLLER_DIR)
+
+from maps import MAP_DEFS
 
 
 def _g(cfg, s, k, fb=""):
@@ -211,7 +206,6 @@ def main() -> None:
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
     # Decrypt any ENC: fields so launch args get plaintext values
-    sys.path.insert(0, os.path.join(os.path.dirname(CONFIG_PATH)))
     try:
         from config_crypt import decrypt_config
         decrypt_config(cfg)

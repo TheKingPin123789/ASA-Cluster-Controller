@@ -10,14 +10,18 @@ import re
 import time
 import hashlib
 import getpass
+import logging
 import subprocess
 import urllib.request
 import zipfile
 import configparser
 from pathlib import Path
 from config_crypt import encrypt_cfg_value, decrypt_cfg_value
+from maps import MAPS
 
-CONFIG_PATH      = Path(__file__).resolve().parent / "config.ini"
+CONFIG_PATH = Path(__file__).resolve().parent / "config.ini"
+
+_log = logging.getLogger(__name__)
 
 
 def _wizard_ram_max_maps() -> int:
@@ -48,18 +52,6 @@ def _wizard_ram_max_maps() -> int:
 
 _STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
 _ASA_APP_ID   = "2430930"
-
-MAPS = [
-    "ragnarok",
-    "thecenter",
-    "valguero",
-    "theisland",
-    "scorchedearth",
-    "aberration",
-    "extinction",
-    "lostcolony",
-    "astraeos",
-]
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -163,6 +155,7 @@ def _download_steamcmd(steamcmd_exe: str) -> bool:
         print("  SteamCMD ready.")
         return True
     except Exception as exc:
+        _log.error("SteamCMD download failed: %s", exc)
         print(f"  Download failed: {exc}")
         return False
 
@@ -185,9 +178,11 @@ def _download_asa_server(steamcmd_exe: str, server_root: str) -> bool:
         if result.returncode == 0:
             print("  ASA server downloaded successfully.")
             return True
+        _log.error("SteamCMD exited with code %d", result.returncode)
         print(f"  SteamCMD exited with code {result.returncode}. Check output above for errors.")
         return False
     except Exception as exc:
+        _log.error("ASA server download failed: %s", exc)
         print(f"  Download failed: {exc}")
         return False
 
@@ -822,8 +817,10 @@ def _backfill_config(cfg: configparser.ConfigParser) -> bool:
         try:
             with CONFIG_PATH.open("w", encoding="utf-8") as f:
                 cfg.write(f)
+            _log.info("Config backfilled %d missing key(s) with defaults.", len(added))
             print(f"  Config backfilled {len(added)} missing key(s) with defaults.")
         except Exception as exc:
+            _log.warning("Could not write backfilled config: %s", exc)
             print(f"  WARNING: could not write backfilled config: {exc}")
         return True
     return False
