@@ -27,6 +27,7 @@ ADMIN_LIST_FILE         = os.path.join(BASE_DIR, "admin_list.txt")
 CONTROLLER_PID_FILE        = os.path.join(BASE_DIR, "controller.pid")
 DASHBOARD_PID_FILE         = os.path.join(BASE_DIR, "dashboard.pid")
 CONTROLLER_RESTART_FILE    = os.path.join(BASE_DIR, "controller.restart")
+MAP_OVERRIDES_FILE         = os.path.join(BASE_DIR, "map_overrides.json")
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -332,6 +333,24 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 .settings-row { margin-bottom: 5px; }
 .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
 
+/* Server info modal */
+#server-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:1000; align-items:center; justify-content:center; }
+#server-modal.open { display:flex; }
+#server-modal-box { background:#1a1f36; border:1px solid #3b4a7a; border-radius:8px; padding:20px 22px; width:90%; max-width:440px; max-height:85vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
+.smi-head { display:flex; justify-content:space-between; align-items:flex-start; }
+.smi-title { font-size:17px; font-weight:700; color:#93c5fd; }
+.smi-close { cursor:pointer; font-size:20px; color:#4b5563; line-height:1; }
+.smi-sec { border-top:1px solid #2a3050; padding-top:10px; display:flex; flex-direction:column; gap:6px; }
+.smi-row { display:flex; gap:12px; }
+.smi-col { flex:1; }
+.smi-label { font-size:11px; color:#4b5563; text-transform:uppercase; letter-spacing:.06em; margin-bottom:2px; }
+.smi-val { font-size:14px; color:#dde1e7; }
+.smi-val.mono { font-family:Consolas,monospace; color:#93c5fd; }
+.smi-ports { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+.smi-player { display:flex; align-items:center; gap:6px; background:#131825; border:1px solid #2a3050; border-radius:3px; padding:3px 8px; font-size:13px; }
+.smi-actions { display:flex; gap:6px; flex-wrap:wrap; }
+@media (max-width:480px) { #server-modal-box { padding:14px 14px; } .smi-ports { grid-template-columns:1fr 1fr; } }
+
 /* Responsive layout */
 @media (max-width: 720px) {
   .btn { padding: 10px 12px; }
@@ -546,6 +565,41 @@ label { font-size: 13px; color: #6b7280; display: block; margin-bottom: 3px; }
 
 <div id="toast-container"></div>
 
+<!-- Server info modal -->
+<div id="server-modal" onclick="if(event.target===this)closeServerModal()">
+  <div id="server-modal-box">
+    <div class="smi-head">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="smi-title" id="smi-name"></div>
+        <span class="badge" id="smi-badge"></span>
+      </div>
+      <span class="smi-close" onclick="closeServerModal()">&#x2715;</span>
+    </div>
+    <div class="smi-row">
+      <div class="smi-col"><div class="smi-label">Status</div><div class="smi-val" id="smi-status"></div></div>
+      <div class="smi-col"><div class="smi-label">Uptime</div><div class="smi-val" id="smi-uptime"></div></div>
+      <div class="smi-col"><div class="smi-label">Players</div><div class="smi-val" id="smi-players"></div></div>
+    </div>
+    <div class="smi-sec">
+      <div class="smi-label">Ports</div>
+      <div class="smi-ports">
+        <div><div class="smi-label">Game</div><div class="smi-val mono" id="smi-game-port"></div></div>
+        <div><div class="smi-label">Query</div><div class="smi-val mono" id="smi-query-port"></div></div>
+        <div><div class="smi-label">RCON</div><div class="smi-val mono" id="smi-rcon-port"></div></div>
+      </div>
+    </div>
+    <div class="smi-sec" id="smi-players-sec">
+      <div class="smi-label">Online Players</div>
+      <div id="smi-player-list"></div>
+    </div>
+    <div class="smi-sec" id="smi-crash-sec" style="display:none;">
+      <div class="smi-label">Crash Info</div>
+      <div class="smi-val" id="smi-crash-info"></div>
+    </div>
+    <div class="smi-actions" id="smi-actions"></div>
+  </div>
+</div>
+
 <!-- Card action (Stop / Restart) confirmation modal -->
 <div id="card-confirm-modal" onclick="if(event.target===this)closeCcm()">
   <div id="card-confirm-box">
@@ -602,6 +656,75 @@ const MAP_DISPLAY = {
   theisland:'The Island', scorchedearth:'Scorched Earth', aberration:'Aberration',
   extinction:'Extinction', lostcolony:'Lost Colony', astraeos:'Astraeos'
 };
+
+// Actual query ports per map key
+const MAP_QUERY_PORTS = {
+  ragnarok:27015, thecenter:27025, valguero:27035, theisland:27045,
+  scorchedearth:27055, aberration:27065, extinction:27075, lostcolony:27085, astraeos:27095,
+};
+
+let _serverData = {};  // key -> server object from last status poll
+let _openServerKey = null;
+
+function openServerModal(key) {
+  _openServerKey = key;
+  _renderServerModal(key);
+  document.getElementById('server-modal').classList.add('open');
+}
+
+function closeServerModal() {
+  document.getElementById('server-modal').classList.remove('open');
+  _openServerKey = null;
+}
+
+function _renderServerModal(key) {
+  const s = _serverData[key];
+  if (!s) return;
+  const cls   = s.is_running ? 'online' : (s.is_starting ? 'starting' : 'offline');
+  const label = s.is_running ? 'Online'  : (s.is_starting ? 'Starting'  : 'Offline');
+  document.getElementById('smi-name').textContent  = s.display_name;
+  const badge = document.getElementById('smi-badge');
+  badge.className   = 'badge ' + cls;
+  badge.textContent = label;
+  document.getElementById('smi-status').textContent  = label;
+  document.getElementById('smi-uptime').textContent  = s.is_running ? fmtUptime(s.online_since) : '—';
+  document.getElementById('smi-players').textContent = s.is_running ? `${s.player_count} / ${window._maxPlayers || 70}` : '—';
+  document.getElementById('smi-game-port').textContent  = s.game_port  || '—';
+  document.getElementById('smi-query-port').textContent = MAP_QUERY_PORTS[key] || '—';
+  document.getElementById('smi-rcon-port').textContent  = s.rcon_port  || '—';
+
+  const pl = s.player_list || [];
+  const plEl = document.getElementById('smi-player-list');
+  const plSec = document.getElementById('smi-players-sec');
+  if (!s.is_running) {
+    plSec.style.display = 'none';
+  } else {
+    plSec.style.display = '';
+    plEl.innerHTML = pl.length
+      ? pl.map(p => `<div class="smi-player"><span style="color:#4ade80;font-size:10px;">&#9679;</span><span style="color:#dde1e7;">${escHtml(p.name||p.id)}</span></div>`).join('')
+      : '<span style="font-size:13px;color:#4b5563;font-style:italic;">No players online</span>';
+  }
+
+  const crashSec  = document.getElementById('smi-crash-sec');
+  const crashInfo = document.getElementById('smi-crash-info');
+  if (s.crash_limit_reached) {
+    crashSec.style.display  = '';
+    crashInfo.innerHTML = '<span style="color:#f87171;font-weight:600;">&#9888; Crash limit reached — manual restart required</span>';
+  } else if (s.crash_restart_count > 0) {
+    crashSec.style.display  = '';
+    crashInfo.innerHTML = `<span style="color:#fbbf24;">&#128293; ${s.crash_restart_count} crash restart(s) in current window</span>`;
+  } else {
+    crashSec.style.display = 'none';
+  }
+
+  const safeDn  = escHtml(s.display_name);
+  const safeKey = escHtml(key);
+  document.getElementById('smi-actions').innerHTML = `
+    <button class="btn btn-bright-green  btn-sm" ${s.is_running||s.is_starting?'disabled':''} onclick="closeServerModal();cardAction('${safeKey}','start','${safeDn}')">Start</button>
+    <button class="btn btn-bright-red    btn-sm" ${!s.is_running?'disabled':''}               onclick="closeServerModal();openCcm('${safeKey}','stop','${safeDn}')">Stop</button>
+    <button class="btn btn-bright-orange btn-sm" ${!s.is_running?'disabled':''}               onclick="closeServerModal();openCcm('${safeKey}','restart','${safeDn}')">Restart</button>
+  `;
+}
 
 let autoScroll           = true;
 let whitelistActive      = false;
@@ -1229,6 +1352,8 @@ function renderCards(data) {
 
   const container = document.getElementById('cards');
   for (const [key, s] of Object.entries(data.servers)) {
+    _serverData[key] = s;
+    if (data.max_players) window._maxPlayers = data.max_players;
     const cls    = s.is_running ? 'online' : (s.is_starting ? 'starting' : 'offline');
     const label  = s.is_running ? 'Online' : (s.is_starting ? 'Starting' : 'Offline');
     const players = s.is_running ? s.player_count + ' / ' + (data.max_players || 70) + ' player(s)' : '';
@@ -1261,12 +1386,13 @@ function renderCards(data) {
       c.querySelector('.btn-start').disabled   = s.is_running || s.is_starting;
       c.querySelector('.btn-stop').disabled    = !s.is_running;
       c.querySelector('.btn-restart').disabled = !s.is_running;
+      if (_openServerKey === key) _renderServerModal(key);
     } else {
       const c = document.createElement('div');
       c.className = 'card ' + cls;
       c.dataset.key = key;
       c.innerHTML = `
-        <div class="card-head">
+        <div class="card-head" style="cursor:pointer;" onclick="openServerModal('${safeKey}')" title="View server details">
           <span class="card-name">${safeDn}</span>
           <span class="badge ${cls}">${label}</span>
         </div>
@@ -2265,6 +2391,7 @@ const SCHEMA = [
       {s:'flags', k:'exclusive_join',            label:'Whitelist Only (Exclusive Join)', ph:'false'},
     ]},
   ]},
+  { group:'Map Settings', mapOverrides: true, sections:[] },
 ];
 
 let activeTab = 0;
@@ -2281,12 +2408,21 @@ function switchTab(idx) {
   activeTab = idx;
   document.querySelectorAll('#tab-bar .s-tab').forEach((b, i) => b.classList.toggle('active', i === idx));
   document.querySelectorAll('#form .group').forEach((g, i) => g.classList.toggle('active', i === idx));
+  if (SCHEMA[idx] && SCHEMA[idx].mapOverrides) loadMapOverrides();
 }
 
 function render(data) {
   const form = document.getElementById('form');
   form.innerHTML = '';
   SCHEMA.forEach((g, i) => {
+    if (g.mapOverrides) {
+      const groupEl = document.createElement('div');
+      groupEl.className = 'group' + (i === activeTab ? ' active' : '');
+      groupEl.id = 'group-map-overrides';
+      groupEl.innerHTML = _buildMapOverridesUI();
+      form.appendChild(groupEl);
+      return;
+    }
     const groupEl = document.createElement('div');
     groupEl.className = 'group' + (i === activeTab ? ' active' : '');
     const multi = g.sections.length > 1;
@@ -2652,10 +2788,223 @@ async function save() {
   }
 }
 
+// ── Map Overrides ─────────────────────────────────────────────────────────────
+const MAP_OVERRIDE_SCHEMA = [
+  { title:'Experience & Gathering', fields:[
+    {s:'rates',    k:'xp_multiplier',             label:'XP Multiplier'},
+    {s:'rates',    k:'harvest_amount_multiplier',  label:'Harvest Amount'},
+    {s:'rates',    k:'taming_speed_multiplier',    label:'Taming Speed'},
+    {s:'rates',    k:'difficulty_offset',          label:'Difficulty Offset'},
+    {s:'rates',    k:'item_stack_size_multiplier', label:'Item Stack Size'},
+    {s:'rates',    k:'crop_growth_speed_multiplier',label:'Crop Growth Speed'},
+  ]},
+  { title:'Breeding', fields:[
+    {s:'breeding', k:'mating_interval_multiplier',          label:'Mating Interval'},
+    {s:'breeding', k:'egg_hatch_speed_multiplier',          label:'Egg Hatch Speed'},
+    {s:'breeding', k:'baby_mature_speed_multiplier',        label:'Baby Mature Speed'},
+    {s:'breeding', k:'baby_cuddle_interval_multiplier',     label:'Cuddle Interval'},
+    {s:'breeding', k:'baby_cuddle_grace_period_multiplier', label:'Cuddle Grace Period'},
+    {s:'breeding', k:'baby_imprint_amount_multiplier',      label:'Imprint Amount'},
+  ]},
+  { title:'Server Flags', fields:[
+    {s:'limits', k:'max_players',                  label:'Max Players (override)',   ph:'70'},
+    {s:'flags',  k:'allow_third_person',           label:'Allow Third Person',       bool:true},
+    {s:'flags',  k:'allow_cave_building_pve',      label:'Allow Cave Building PvE',  bool:true},
+    {s:'flags',  k:'disable_structure_decay_pve',  label:'Disable Structure Decay',  bool:true},
+    {s:'flags',  k:'force_allow_cave_flyers',      label:'Force Cave Flyers',        bool:true},
+    {s:'flags',  k:'exclusive_join',               label:'Whitelist Only (Exclusive Join)', bool:true},
+  ]},
+];
+
+const MAP_DISPLAY_MO = {
+  ragnarok:'Ragnarok', thecenter:'The Center', valguero:'Valguero',
+  theisland:'The Island', scorchedearth:'Scorched Earth', aberration:'Aberration',
+  extinction:'Extinction', lostcolony:'Lost Colony', astraeos:'Astraeos',
+};
+const MAPS_MO = ['ragnarok','thecenter','valguero','theisland','scorchedearth','aberration','extinction','lostcolony','astraeos'];
+
+let _mapOverridesData = {};
+let _globalSettingsData = {};
+
+function _buildMapOverridesUI() {
+  const opts = MAPS_MO.map(k => `<option value="${k}">${MAP_DISPLAY_MO[k]}</option>`).join('');
+  return `
+    <div class="sec-head" style="margin-top:0;">Map-Specific Settings</div>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">
+      Override global rates and flags for individual maps. Leave a field blank to use the global setting.
+    </p>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <label style="font-size:13px;color:#6b7280;margin:0;">Map:</label>
+      <select id="mo-map-sel" class="s-sel" style="max-width:220px;" onchange="renderMapOverrideForm()">
+        ${opts}
+      </select>
+    </div>
+    <div id="mo-form"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn" id="mo-save-btn" onclick="saveMapOverrides()" style="max-width:200px;">Save Map Settings</button>
+      <button class="btn" onclick="clearMapOverrides()" style="max-width:180px;background:#374151;color:#9ca3af;">Clear Overrides</button>
+      <span id="mo-status" style="font-size:13px;"></span>
+    </div>
+  `;
+}
+
+async function loadMapOverrides() {
+  try {
+    const r = await apiFetch('/api/map_overrides');
+    if (r && r.ok) _mapOverridesData = await r.json();
+  } catch(e) {}
+  // Also grab global settings for placeholder values
+  try {
+    const r = await apiFetch('/api/settings');
+    if (r && r.ok) _globalSettingsData = await r.json();
+  } catch(e) {}
+  renderMapOverrideForm();
+}
+
+function renderMapOverrideForm() {
+  const sel = document.getElementById('mo-map-sel');
+  if (!sel) return;
+  const mapKey  = sel.value;
+  const current = (_mapOverridesData[mapKey] || {});
+  const formEl  = document.getElementById('mo-form');
+  if (!formEl) return;
+
+  let html = '';
+  for (const sec of MAP_OVERRIDE_SCHEMA) {
+    html += `<div class="sec-head">${esc(sec.title)}</div><div class="grid2">`;
+    for (const f of sec.fields) {
+      const saved   = (current[f.s] || {})[f.k] || '';
+      const global  = (_globalSettingsData[f.s] || {})[f.k] || '';
+      const ph      = f.ph || (global ? `Global: ${global}` : '');
+      if (f.bool) {
+        const cur = saved || '';
+        html += `<div class="field">
+          <label>${esc(f.label)}</label>
+          <select class="s-sel" data-s="${f.s}" data-k="${f.k}">
+            <option value=""${cur===''?' selected':''}>— use global —</option>
+            <option value="true"${cur==='true'?' selected':''}>true</option>
+            <option value="false"${cur==='false'?' selected':''}>false</option>
+          </select>
+        </div>`;
+      } else {
+        html += `<div class="field">
+          <label>${esc(f.label)}</label>
+          <input type="text" data-s="${f.s}" data-k="${f.k}" value="${esc(saved)}" placeholder="${esc(ph)}">
+        </div>`;
+      }
+    }
+    html += '</div>';
+  }
+  formEl.innerHTML = html;
+
+  const status = document.getElementById('mo-status');
+  if (status) {
+    const hasOverrides = Object.keys(current).length > 0;
+    status.textContent  = hasOverrides ? '❖ Custom overrides active' : '';
+    status.style.color  = '#4ade80';
+  }
+}
+
+async function saveMapOverrides() {
+  const sel = document.getElementById('mo-map-sel');
+  if (!sel) return;
+  const mapKey = sel.value;
+  const btn    = document.getElementById('mo-save-btn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+
+  const overrides = {};
+  document.querySelectorAll('#mo-form input, #mo-form select').forEach(el => {
+    const s = el.dataset.s, k = el.dataset.k;
+    if (!s || !k) return;
+    const val = el.value.trim();
+    if (val === '' || val === '— use global —') return;
+    if (!overrides[s]) overrides[s] = {};
+    overrides[s][k] = val;
+  });
+
+  try {
+    const r = await apiFetch('/api/map_overrides', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ map: mapKey, overrides })
+    });
+    if (!r) { btn.textContent = 'Save Map Settings'; btn.disabled = false; return; }
+    const d = await r.json();
+    if (d.ok) {
+      _mapOverridesData[mapKey] = overrides;
+      btn.textContent = 'Saved!'; btn.className = 'btn saved'; btn.disabled = false;
+      const status = document.getElementById('mo-status');
+      if (status) { status.textContent = Object.keys(overrides).length ? '❖ Custom overrides active' : ''; status.style.color = '#4ade80'; }
+      setTimeout(() => { btn.textContent = 'Save Map Settings'; btn.className = 'btn'; }, 2000);
+    } else {
+      alert('Save failed: ' + (d.error || 'unknown'));
+      btn.textContent = 'Save Map Settings'; btn.disabled = false;
+    }
+  } catch(e) {
+    alert('Save error: ' + e.message);
+    btn.textContent = 'Save Map Settings'; btn.disabled = false;
+  }
+}
+
+async function clearMapOverrides() {
+  const sel = document.getElementById('mo-map-sel');
+  if (!sel) return;
+  const mapKey = sel.value;
+  const dn = MAP_DISPLAY_MO[mapKey] || mapKey;
+  if (!confirm(`Clear all custom overrides for ${dn}?\n\nIt will use global settings for all fields.`)) return;
+  try {
+    const r = await apiFetch('/api/map_overrides', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ map: mapKey, overrides: {} })
+    });
+    if (r && r.ok) {
+      delete _mapOverridesData[mapKey];
+      renderMapOverrideForm();
+    }
+  } catch(e) {}
+}
+
 load();
 </script>
 </body>
 </html>"""
+
+
+def _read_map_overrides() -> dict:
+    if not os.path.exists(MAP_OVERRIDES_FILE):
+        return {}
+    try:
+        with open(MAP_OVERRIDES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+@app.route("/api/map_overrides", methods=["GET"])
+@login_required
+def get_map_overrides():
+    return jsonify(_read_map_overrides())
+
+
+@app.route("/api/map_overrides", methods=["POST"])
+@login_required
+def post_map_overrides():
+    from maps import MAPS as _MAPS
+    data     = request.get_json(silent=True) or {}
+    map_key  = data.get("map", "").strip().lower()
+    overrides = data.get("overrides", {})
+    if map_key not in _MAPS:
+        return jsonify({"error": "invalid map key"}), 400
+    all_overrides = _read_map_overrides()
+    if overrides:
+        all_overrides[map_key] = overrides
+    else:
+        all_overrides.pop(map_key, None)
+    try:
+        with open(MAP_OVERRIDES_FILE, "w", encoding="utf-8") as f:
+            json.dump(all_overrides, f, indent=2)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/restart/controller", methods=["POST"])

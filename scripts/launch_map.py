@@ -10,6 +10,7 @@ Usage:
 
 import os
 import sys
+import json
 import subprocess
 import configparser
 
@@ -24,6 +25,28 @@ if _CONTROLLER_DIR not in sys.path:
     sys.path.insert(0, _CONTROLLER_DIR)
 
 from maps import MAP_DEFS
+
+MAP_OVERRIDES_FILE = os.path.join(_CONTROLLER_DIR, "map_overrides.json")
+
+
+def _load_map_overrides(key: str) -> dict:
+    """Return per-map setting overrides for the given map key, or {} if none."""
+    try:
+        if os.path.exists(MAP_OVERRIDES_FILE):
+            with open(MAP_OVERRIDES_FILE, encoding="utf-8") as f:
+                return json.load(f).get(key, {})
+    except Exception:
+        pass
+    return {}
+
+
+def _apply_overrides(cfg: "configparser.ConfigParser", overrides: dict) -> None:
+    """Merge per-map overrides into cfg in-place (override global settings)."""
+    for section, kvs in overrides.items():
+        if not cfg.has_section(section):
+            cfg.add_section(section)
+        for k, v in kvs.items():
+            cfg.set(section, k, str(v))
 
 
 def _g(cfg, s, k, fb=""):
@@ -211,6 +234,11 @@ def main() -> None:
         decrypt_config(cfg)
     except Exception:
         pass
+
+    overrides = _load_map_overrides(key)
+    if overrides:
+        _apply_overrides(cfg, overrides)
+        print(f"  Applied {sum(len(v) for v in overrides.values())} per-map override(s) for {key}.")
 
     server_root   = _g(cfg, "paths","server_root",        r"C:\ARK_ASA_Server\asa_server")
     cluster_dir   = _g(cfg, "paths","cluster_dir",       os.path.join(server_root,"cluster"))
